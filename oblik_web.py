@@ -2,22 +2,19 @@ import streamlit as st
 import pandas as pd
 from PIL import Image
 from pyzbar.pyzbar import decode
+import os
 
-# --- Налаштування сторінки ---
+# --- Налаштування ---
 st.set_page_config(page_title="Облік", page_icon="📦", layout="centered", initial_sidebar_state="collapsed")
 
 # --- CSS Стилі ---
 st.markdown("""
     <style>
-    /* Підтягуємо контент вгору */
     .block-container { padding-top: 1rem; padding-bottom: 0rem; }
-    
-    /* Ховаємо меню */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Стиль картки */
     .product-card {
         background-color: #ffffff; padding: 15px; border-radius: 12px;
         margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #eee;
@@ -29,7 +26,6 @@ st.markdown("""
     
     .profit-block { text-align: left; }
     .profit-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; }
-    /* ТУТ ЗМІНИ: Шрифт прибутку тепер такий самий великий (24px) */
     .profit-val { font-size: 24px; font-weight: 800; color: #444; }
     
     .price-block { text-align: right; }
@@ -37,10 +33,7 @@ st.markdown("""
     .price-val { font-size: 24px; font-weight: 800; color: #2e7d32; }
     
     button[kind="secondary"] { height: 2.5rem; margin-top: 0px !important; }
-    
-    div[data-testid="stCameraInput"] button {
-        background-color: #2e7d32; color: white; border: none;
-    }
+    div[data-testid="stCameraInput"] button { background-color: #2e7d32; color: white; border: none; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -51,12 +44,20 @@ def format_number(val):
     except: return str(val)
 
 @st.cache_data
-def load_data(uploaded_file):
+def load_data(file_path_or_buffer):
     try:
-        if uploaded_file.name.endswith('.xls'):
-            df = pd.read_excel(uploaded_file, engine='xlrd', header=None)
+        # Перевіряємо, чи це шлях до файлу (str) чи завантажений об'єкт
+        if isinstance(file_path_or_buffer, str):
+            engine = 'openpyxl' # Для локального файлу зазвичай xlsx
+            header = None
         else:
-            df = pd.read_excel(uploaded_file, engine='openpyxl', header=None)
+            if file_path_or_buffer.name.endswith('.xls'):
+                engine = 'xlrd'
+            else:
+                engine = 'openpyxl'
+            header = None
+
+        df = pd.read_excel(file_path_or_buffer, engine=engine, header=header)
         
         start_col = 0
         for col_idx in range(df.shape[1]):
@@ -95,25 +96,41 @@ st.markdown("<h3 style='text-align: center; margin-bottom: 10px; margin-top: 0px
 if 'df' not in st.session_state:
     st.session_state.df = None
 
+# ЛОГІКА АВТОЗАВАНТАЖЕННЯ
+# Якщо файл data.xlsx є на сервері (в GitHub) - вантажимо його
+default_file = "data.xlsx"
+
 if st.session_state.df is None:
+    # 1. Спробувати знайти файл на сервері
+    if os.path.exists(default_file):
+        # st.info(f"Знайдено базу: {default_file}") # Можна розкоментувати для налагодження
+        df = load_data(default_file)
+        if df is not None:
+            st.session_state.df = df
+            st.rerun()
+    
+    # 2. Якщо файлу немає, показати кнопку завантаження
     uploaded_file = st.file_uploader("Завантажити Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
     if uploaded_file:
         df = load_data(uploaded_file)
         if df is not None:
             st.session_state.df = df
             st.rerun()
+
 else:
+    # Кнопка зміни файлу
     col_btn, col_empty = st.columns([1, 2])
     with col_btn:
-        if st.button("📂 Змінити файл", type="secondary"):
+        # Якщо файл був з сервера, кнопка дозволить завантажити свій
+        if st.button("📂 Інший файл", type="secondary"):
             st.session_state.df = None
             st.rerun()
 
+# --- Робоча зона ---
 if st.session_state.df is not None:
     df = st.session_state.df
     
     tab_scan, tab_manual = st.tabs(["📹 Сканер", "⌨️ Пошук"])
-    
     search_code = ""
 
     with tab_scan:
