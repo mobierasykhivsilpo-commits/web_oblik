@@ -9,6 +9,12 @@ st.set_page_config(page_title="Облік", page_icon="📦", layout="centered",
 # --- CSS Стилі ---
 st.markdown("""
     <style>
+    /* 1. ПРИБИРАЄМО ВІДСТУП ЗВЕРХУ */
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 0rem;
+    }
+    
     /* Ховаємо меню */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
@@ -51,10 +57,11 @@ st.markdown("""
     .price-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; }
     .price-val { font-size: 24px; font-weight: 800; color: #2e7d32; }
     
-    /* Робимо кнопку камери більшою (візуально) */
+    /* Кнопки */
     button[kind="secondary"] {
-        height: 3rem;
-        font-size: 18px !important;
+        height: 2.5rem;
+        font-size: 16px !important;
+        margin-top: 0px !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -109,36 +116,36 @@ def load_data(uploaded_file):
         return None
 
 # --- UI ---
-# Заголовок ще менший, щоб економити місце
-st.markdown("<h3 style='text-align: center; margin-bottom: 5px;'>Облік</h3>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center; margin-bottom: 10px; margin-top: 0px;'>Облік</h3>", unsafe_allow_html=True)
 
-# Стан (щоб пам'ятати файл після перезавантаження сторінки)
+# Стан
 if 'df' not in st.session_state:
     st.session_state.df = None
 
-# Завантаження (згорнуте, якщо файл вже є)
+# Завантаження
 if st.session_state.df is None:
     uploaded_file = st.file_uploader("Завантажити Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
     if uploaded_file:
         df = load_data(uploaded_file)
         if df is not None:
             st.session_state.df = df
-            st.rerun() # Перезавантажити, щоб сховати завантажувач
+            st.rerun()
 else:
-    # Кнопка для зміни файлу (маленька зверху)
-    if st.button("📂 Змінити файл бази", type="secondary"):
-        st.session_state.df = None
-        st.rerun()
+    # Кнопка для зміни файлу (компактна)
+    col_btn, col_empty = st.columns([1, 2])
+    with col_btn:
+        if st.button("📂 Змінити файл", type="secondary"):
+            st.session_state.df = None
+            st.rerun()
 
-# Основна логіка (якщо база є)
+# Основна логіка
 if st.session_state.df is not None:
     df = st.session_state.df
     
-    # Вкладки для вибору методу
+    # Вкладки
     tab1, tab2 = st.tabs(["📸 Камера", "⌨️ Пошук"])
     
     with tab1:
-        # Камера - це основний елемент
         img_file = st.camera_input("Натисніть для фото", label_visibility="collapsed")
         
         search_code = ""
@@ -148,14 +155,14 @@ if st.session_state.df is not None:
             if decoded_objects:
                 search_code = decoded_objects[0].data.decode("utf-8")
             else:
-                st.warning("Штрихкод не видно. Спробуйте ближче.")
+                st.warning("Штрихкод не видно")
     
     with tab2:
         manual_code = st.text_input("Код або назва", placeholder="Введіть...", label_visibility="collapsed")
         if manual_code:
             search_code = manual_code
 
-    # Відображення
+    # Результат
     if search_code:
         query = search_code.lower().strip()
         mask = (
@@ -169,7 +176,6 @@ if st.session_state.df is not None:
         
         if not results.empty:
             for _, row in results.iterrows():
-                # HTML без відступів
                 html_card = f"""
 <div class="product-card">
 <div class="product-name">{row['Найменування']}</div>
