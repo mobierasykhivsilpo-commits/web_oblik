@@ -3,6 +3,4 @@ pandas
 openpyxl
 Pillow
 pyzbar
-streamlit-webrtc
-opencv-python-headless
-av
+
