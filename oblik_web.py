@@ -10,59 +10,65 @@ st.set_page_config(page_title="Облік", page_icon="📦", layout="centered")
 # --- CSS Стилі (Дизайн) ---
 st.markdown("""
     <style>
-    /* Приховуємо стандартне меню зверху для чистоти */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     
     /* Стилі для картки товару */
     .product-card {
-        background-color: #f0f2f6;
+        background-color: #ffffff;
         padding: 15px;
-        border-radius: 10px;
-        margin-bottom: 10px;
-        border: 1px solid #e0e0e0;
+        border-radius: 12px;
+        margin-bottom: 12px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        border: 1px solid #eee;
     }
     .product-name {
-        font-size: 20px;
-        font-weight: bold;
+        font-size: 18px;
+        font-weight: 700;
         color: #1f1f1f;
-        margin-bottom: 2px;
-        line-height: 1.2;
+        margin-bottom: 4px;
+        line-height: 1.3;
     }
     .product-code {
-        font-size: 14px;
-        color: #666;
-        margin-bottom: 12px;
+        font-size: 13px;
+        color: #888;
+        margin-bottom: 15px;
         font-family: monospace;
     }
     .stats-row {
         display: flex;
         justify-content: space-between;
         align-items: flex-end;
+        border-top: 1px solid #f0f0f0;
+        padding-top: 10px;
     }
     .profit-block {
         text-align: left;
     }
     .profit-label {
-        font-size: 12px;
-        color: #555;
+        font-size: 11px;
+        text-transform: uppercase;
+        color: #888;
+        font-weight: 600;
     }
     .profit-val {
-        font-size: 18px;
-        font-weight: bold;
-        color: #333;
+        font-size: 16px;
+        font-weight: 600;
+        color: #444;
     }
     .price-block {
         text-align: right;
     }
     .price-label {
-        font-size: 12px;
-        color: #555;
+        font-size: 11px;
+        text-transform: uppercase;
+        color: #888;
+        font-weight: 600;
     }
     .price-val {
-        font-size: 24px;
-        font-weight: bold;
-        color: #2e7d32; /* Зелений колір */
+        font-size: 22px;
+        font-weight: 800;
+        color: #2e7d32;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -117,7 +123,7 @@ def load_data(uploaded_file):
         return None
 
 # --- Головний екран ---
-st.title("Облік") # Мінімалістичний заголовок
+st.title("Облік")
 
 uploaded_file = st.file_uploader("Завантажити Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
 
@@ -126,7 +132,6 @@ if uploaded_file:
     if df is not None:
         st.success(f"База: {len(df)} поз.", icon="✅")
         
-        # Перемикач режимів (компактний)
         mode = st.radio("Режим:", ["⌨️ Вручну", "📸 Камера"], horizontal=True, label_visibility="collapsed")
         
         search_code = ""
@@ -153,28 +158,27 @@ if uploaded_file:
             )
             results = df[mask]
             
-            st.write("") # Відступ
+            st.write("") 
             
             if not results.empty:
                 for _, row in results.iterrows():
-                    # HTML-верстка картки товару
+                    # УВАГА: Тут важливо, щоб рядки HTML були притиснуті до лівого краю (без відступів)
                     html_card = f"""
-                    <div class="product-card">
-                        <div class="product-name">{row['Найменування']}</div>
-                        <div class="product-code">Код: {row['Код']}</div>
-                        
-                        <div class="stats-row">
-                            <div class="profit-block">
-                                <div class="profit-label">Прибуток</div>
-                                <div class="profit-val">{row['Прибуток']}</div>
-                            </div>
-                            <div class="price-block">
-                                <div class="price-label">Ціна</div>
-                                <div class="price-val">{row['Ціна']} ₴</div>
-                            </div>
-                        </div>
-                    </div>
-                    """
+<div class="product-card">
+    <div class="product-name">{row['Найменування']}</div>
+    <div class="product-code">Код: {row['Код']}</div>
+    <div class="stats-row">
+        <div class="profit-block">
+            <div class="profit-label">Прибуток</div>
+            <div class="profit-val">{row['Прибуток']}</div>
+        </div>
+        <div class="price-block">
+            <div class="price-label">Ціна</div>
+            <div class="price-val">{row['Ціна']} ₴</div>
+        </div>
+    </div>
+</div>
+"""
                     st.markdown(html_card, unsafe_allow_html=True)
             else:
                 st.error("Товар не знайдено")
