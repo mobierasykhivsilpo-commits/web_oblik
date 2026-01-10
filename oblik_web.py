@@ -3,9 +3,6 @@ import pandas as pd
 from PIL import Image
 from pyzbar.pyzbar import decode
 import os
-import cv2
-import av
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoTransformerBase
 
 # --- Налаштування сторінки ---
 st.set_page_config(page_title="Облік", page_icon="📦", layout="centered", initial_sidebar_state="collapsed")
@@ -18,6 +15,7 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
+    /* Картка товару */
     .product-card {
         background-color: #ffffff; padding: 15px; border-radius: 12px;
         margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #eee;
@@ -25,12 +23,14 @@ st.markdown("""
     .product-name { font-size: 18px; font-weight: 700; color: #1f1f1f; margin-bottom: 4px; line-height: 1.3; }
     .product-code { font-size: 13px; color: #888; margin-bottom: 15px; font-family: monospace; }
     
+    /* Ряд зі статистикою */
     .stats-row { 
         display: flex; justify-content: space-between; align-items: flex-end; 
         border-top: 1px solid #f0f0f0; padding-top: 10px; 
     }
     .stat-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; margin-bottom: 2px;}
     
+    /* Блоки статистики */
     .purchase-block { text-align: left; width: 30%; }
     .purchase-val { font-size: 24px; font-weight: 800; color: #d32f2f; }
     
@@ -44,9 +44,16 @@ st.markdown("""
     button[kind="secondary"] { height: 2.5rem; margin-top: 0px !important; }
     div[data-testid="stCameraInput"] button { background-color: #2e7d32; color: white; border: none; }
     
+    /* Стиль для назви файлу (ПРАВИЙ КРАЙ) */
     .file-label {
-        font-size: 13px; color: #666; margin-top: 8px; text-align: right;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%;
+        font-size: 13px; 
+        color: #666; 
+        margin-top: 8px; 
+        text-align: right; /* Притискаємо до правого краю */
+        white-space: nowrap; 
+        overflow: hidden; 
+        text-overflow: ellipsis;
+        width: 100%;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -69,6 +76,7 @@ def load_data(file_path_or_buffer):
             header = None
 
         df = pd.read_excel(file_path_or_buffer, engine=engine, header=header)
+        
         start_col = 0
         for col_idx in range(df.shape[1]):
             if not df.iloc[:10, col_idx].isnull().all():
@@ -109,12 +117,12 @@ if 'df' not in st.session_state:
     st.session_state.df = None
 if 'filename' not in st.session_state:
     st.session_state.filename = ""
-if 'scanned_code' not in st.session_state:
-    st.session_state.scanned_code = ""
 
-# Автозавантаження
+# 1. Автозавантаження (GitHub data.xlsx)
 default_file = "data.xlsx"
+
 if st.session_state.df is None:
+    # Спочатку шукаємо файл на сервері
     if os.path.exists(default_file):
         df = load_data(default_file)
         if df is not None:
@@ -122,6 +130,7 @@ if st.session_state.df is None:
             st.session_state.filename = default_file
             st.rerun()
     
+    # Якщо немає - просимо завантажити
     uploaded_file = st.file_uploader("Завантажити Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
     if uploaded_file:
         df = load_data(uploaded_file)
@@ -129,84 +138,29 @@ if st.session_state.df is None:
             st.session_state.df = df
             st.session_state.filename = uploaded_file.name
             st.rerun()
+
 else:
-    col_btn, col_info = st.columns([1, 2])
+    # Верхня панель: Кнопка зліва, Назва файлу справа
+    col_btn, col_info = st.columns([1, 2]) # Кнопка займає 1 частину, текст 2 частини
+    
     with col_btn:
         if st.button("📂 Змінити", type="secondary"):
             st.session_state.df = None
             st.session_state.filename = ""
             st.rerun()
+            
     with col_info:
+        # Виводимо назву файлу, притиснуту вправо
         st.markdown(f"<div class='file-label'>База: <b>{st.session_state.filename}</b></div>", unsafe_allow_html=True)
-
-# --- Обробка відео (Callback) ---
-# Ця функція викликається для кожного кадру відео
-def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
-    img = frame.to_ndarray(format="bgr24")
-    
-    # Спроба знайти код
-    decoded_objects = decode(img)
-    for obj in decoded_objects:
-        code_data = obj.data.decode("utf-8")
-        # Малюємо зелену рамку
-        rect = obj.rect
-        cv2.rectangle(img, (rect.left, rect.top), (rect.left + rect.width, rect.top + rect.height), (0, 255, 0), 3)
-        
-        # Тут ми не можемо напряму змінити st.session_state, бо це інший потік
-        # Тому ми просто повертаємо картинку з рамкою
-        # Логіка зупинки реалізована нижче через BarcodeDetector
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
-
-    return av.VideoFrame.from_ndarray(img, format="bgr24")
-
 
 # --- Основна частина ---
 if st.session_state.df is not None:
     df = st.session_state.df
     
-    # ТРИ ВКЛАДКИ
-    tab_live, tab_photo, tab_manual = st.tabs(["📹 LIVE Відео", "📸 Фото", "⌨️ Пошук"])
-    
+    tab_scan, tab_manual = st.tabs(["📹 Сканер", "⌨️ Пошук"])
     search_code = ""
 
-    # 1. LIVE ВІДЕО (Безперервне)
-    with tab_live:
-        st.caption("Наведіть камеру на код. Потрібен хороший інтернет.")
-        
-        # Клас для обробки і передачі результату
-        class BarcodeDetector(VideoTransformerBase):
-            def __init__(self):
-                self.found_code = None
-
-            def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
-                img = frame.to_ndarray(format="bgr24")
-                decoded_objects = decode(img)
-                
-                if decoded_objects:
-                    self.found_code = decoded_objects[0].data.decode("utf-8")
-                    # Малюємо рамку
-                    rect = decoded_objects[0].rect
-                    cv2.rectangle(img, (rect.left, rect.top), (rect.left + rect.width, rect.top + rect.height), (0, 255, 0), 4)
-                
-                return av.VideoFrame.from_ndarray(img, format="bgr24")
-
-        # Запускаємо стрім
-        ctx = webrtc_streamer(
-            key="barcode-scanner",
-            mode=WebRtcMode.SENDRECV,
-            video_processor_factory=BarcodeDetector,
-            media_stream_constraints={"video": {"facingMode": "environment"}}, # Просимо задню камеру
-            async_processing=True,
-        )
-
-        # Перевіряємо, чи знайдено код
-        if ctx.video_processor:
-            if ctx.video_processor.found_code:
-                search_code = ctx.video_processor.found_code
-                st.success("Знайдено!") 
-
-    # 2. ФОТО (Стабільно)
-    with tab_photo:
+    with tab_scan:
         img_buffer = st.camera_input("Scanner", label_visibility="collapsed")
         if img_buffer:
             image = Image.open(img_buffer)
@@ -214,14 +168,12 @@ if st.session_state.df is not None:
             if decoded:
                 search_code = decoded[0].data.decode("utf-8")
             else:
-                st.warning("Код не знайдено.")
+                st.warning("Штрихкод не розпізнано.")
 
-    # 3. РУЧНИЙ ПОШУК
     with tab_manual:
         manual = st.text_input("Введіть код або назву", label_visibility="collapsed")
         if manual: search_code = manual
 
-    # --- Результат ---
     if search_code:
         query = search_code.lower().strip()
         mask = (
@@ -235,6 +187,7 @@ if st.session_state.df is not None:
         
         if not results.empty:
             for _, row in results.iterrows():
+                # HTML картки (без відступів!)
                 html_card = f"""
 <div class="product-card">
 <div class="product-name">{row['Найменування']}</div>
