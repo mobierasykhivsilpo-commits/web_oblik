@@ -15,6 +15,13 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
+    /* 1. РОБИМО ВКЛАДКИ НА ВСЮ ШИРИНУ (50/50) */
+    button[data-baseweb="tab"] {
+        flex: 1; /* Розтягуємо кожну кнопку */
+        width: 100%;
+        justify-content: center;
+    }
+    
     /* Картка товару */
     .product-card {
         background-color: #ffffff; padding: 15px; border-radius: 12px;
@@ -23,14 +30,13 @@ st.markdown("""
     .product-name { font-size: 18px; font-weight: 700; color: #1f1f1f; margin-bottom: 4px; line-height: 1.3; }
     .product-code { font-size: 13px; color: #888; margin-bottom: 15px; font-family: monospace; }
     
-    /* Ряд зі статистикою */
+    /* Статистика */
     .stats-row { 
         display: flex; justify-content: space-between; align-items: flex-end; 
         border-top: 1px solid #f0f0f0; padding-top: 10px; 
     }
     .stat-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; margin-bottom: 2px;}
     
-    /* Блоки статистики */
     .purchase-block { text-align: left; width: 30%; }
     .purchase-val { font-size: 24px; font-weight: 800; color: #d32f2f; }
     
@@ -44,16 +50,10 @@ st.markdown("""
     button[kind="secondary"] { height: 2.5rem; margin-top: 0px !important; }
     div[data-testid="stCameraInput"] button { background-color: #2e7d32; color: white; border: none; }
     
-    /* Стиль для назви файлу (ПРАВИЙ КРАЙ) */
+    /* Назва файлу */
     .file-label {
-        font-size: 13px; 
-        color: #666; 
-        margin-top: 8px; 
-        text-align: right; /* Притискаємо до правого краю */
-        white-space: nowrap; 
-        overflow: hidden; 
-        text-overflow: ellipsis;
-        width: 100%;
+        font-size: 13px; color: #666; margin-top: 8px; text-align: right;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -76,7 +76,6 @@ def load_data(file_path_or_buffer):
             header = None
 
         df = pd.read_excel(file_path_or_buffer, engine=engine, header=header)
-        
         start_col = 0
         for col_idx in range(df.shape[1]):
             if not df.iloc[:10, col_idx].isnull().all():
@@ -118,11 +117,9 @@ if 'df' not in st.session_state:
 if 'filename' not in st.session_state:
     st.session_state.filename = ""
 
-# 1. Автозавантаження (GitHub data.xlsx)
+# Автозавантаження
 default_file = "data.xlsx"
-
 if st.session_state.df is None:
-    # Спочатку шукаємо файл на сервері
     if os.path.exists(default_file):
         df = load_data(default_file)
         if df is not None:
@@ -130,7 +127,6 @@ if st.session_state.df is None:
             st.session_state.filename = default_file
             st.rerun()
     
-    # Якщо немає - просимо завантажити
     uploaded_file = st.file_uploader("Завантажити Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
     if uploaded_file:
         df = load_data(uploaded_file)
@@ -138,25 +134,21 @@ if st.session_state.df is None:
             st.session_state.df = df
             st.session_state.filename = uploaded_file.name
             st.rerun()
-
 else:
-    # Верхня панель: Кнопка зліва, Назва файлу справа
-    col_btn, col_info = st.columns([1, 2]) # Кнопка займає 1 частину, текст 2 частини
-    
+    col_btn, col_info = st.columns([1, 2])
     with col_btn:
         if st.button("📂 Змінити", type="secondary"):
             st.session_state.df = None
             st.session_state.filename = ""
             st.rerun()
-            
     with col_info:
-        # Виводимо назву файлу, притиснуту вправо
         st.markdown(f"<div class='file-label'>База: <b>{st.session_state.filename}</b></div>", unsafe_allow_html=True)
 
 # --- Основна частина ---
 if st.session_state.df is not None:
     df = st.session_state.df
     
+    # Вкладки тепер будуть на всю ширину завдяки CSS вище
     tab_scan, tab_manual = st.tabs(["📹 Сканер", "⌨️ Пошук"])
     search_code = ""
 
@@ -187,7 +179,6 @@ if st.session_state.df is not None:
         
         if not results.empty:
             for _, row in results.iterrows():
-                # HTML картки (без відступів!)
                 html_card = f"""
 <div class="product-card">
 <div class="product-name">{row['Найменування']}</div>
