@@ -9,31 +9,38 @@ st.set_page_config(page_title="Облік", page_icon="📦", layout="centered",
 # --- CSS Стилі ---
 st.markdown("""
     <style>
+    /* Підтягуємо контент вгору */
     .block-container { padding-top: 1rem; padding-bottom: 0rem; }
+    
+    /* Ховаємо меню Streamlit */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
+    /* Стиль картки товару */
     .product-card {
         background-color: #ffffff; padding: 15px; border-radius: 12px;
         margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #eee;
     }
     .product-name { font-size: 18px; font-weight: 700; color: #1f1f1f; margin-bottom: 4px; line-height: 1.3; }
     .product-code { font-size: 13px; color: #888; margin-bottom: 15px; font-family: monospace; }
+    
     .stats-row { display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid #f0f0f0; padding-top: 10px; }
+    
     .profit-block { text-align: left; }
     .profit-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; }
     .profit-val { font-size: 16px; font-weight: 600; color: #444; }
+    
     .price-block { text-align: right; }
     .price-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; }
     .price-val { font-size: 24px; font-weight: 800; color: #2e7d32; }
     
-    /* Стиль кнопок */
+    /* Стиль кнопки для зміни файлу */
     button[kind="secondary"] { height: 2.5rem; margin-top: 0px !important; }
     
-    /* Збільшуємо область кліку для камери */
+    /* Колір кнопки фотографування */
     div[data-testid="stCameraInput"] button {
-        background-color: #2e7d32; color: white;
+        background-color: #2e7d32; color: white; border: none;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -83,12 +90,13 @@ def load_data(uploaded_file):
     except Exception as e:
         return None
 
-# --- UI ---
+# --- UI (Інтерфейс) ---
 st.markdown("<h3 style='text-align: center; margin-bottom: 10px; margin-top: 0px;'>Облік</h3>", unsafe_allow_html=True)
 
 if 'df' not in st.session_state:
     st.session_state.df = None
 
+# Логіка завантаження файлу
 if st.session_state.df is None:
     uploaded_file = st.file_uploader("Завантажити Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
     if uploaded_file:
@@ -103,45 +111,34 @@ else:
             st.session_state.df = None
             st.rerun()
 
+# Основна робоча зона
 if st.session_state.df is not None:
     df = st.session_state.df
     
-    # ДВІ ВКЛАДКИ ДЛЯ ЗРУЧНОСТІ
-    tab_live, tab_file, tab_manual = st.tabs(["📹 Жива камера", "📸 Якісне фото", "⌨️ Пошук"])
+    # Тільки дві вкладки
+    tab_scan, tab_manual = st.tabs(["📹 Сканер", "⌨️ Пошук"])
     
     search_code = ""
 
-    # 1. Жива камера (Швидко)
-    with tab_live:
-        st.caption("Натисніть 'Take Photo' для сканування.")
-        # Цей віджет дозволяє перемикати камери (шукайте значок перемикача на екрані)
+    # 1. Жива камера
+    with tab_scan:
+        # st.caption("Якщо камера фронтальна - перемкніть її у налаштуваннях нижче")
         img_buffer = st.camera_input("Scanner", label_visibility="collapsed")
+        
         if img_buffer:
             image = Image.open(img_buffer)
             decoded = decode(image)
             if decoded:
                 search_code = decoded[0].data.decode("utf-8")
             else:
-                st.warning("Спробуйте піднести ближче")
+                st.warning("Штрихкод не розпізнано. Спробуйте ближче.")
 
-    # 2. Завантаження (Якісно)
-    with tab_file:
-        st.info("Використовує рідну камеру (спалах/зум).")
-        img_file = st.file_uploader("Фото", type=['png', 'jpg', 'jpeg'], label_visibility="collapsed", key="uploader")
-        if img_file:
-            image = Image.open(img_file)
-            decoded = decode(image)
-            if decoded:
-                search_code = decoded[0].data.decode("utf-8")
-            else:
-                st.warning("Код не знайдено")
-
-    # 3. Ручний пошук
+    # 2. Ручний пошук
     with tab_manual:
-        manual = st.text_input("Код/Назва", label_visibility="collapsed")
+        manual = st.text_input("Введіть код або назву", label_visibility="collapsed")
         if manual: search_code = manual
 
-    # --- Результат ---
+    # --- Відображення результатів ---
     if search_code:
         query = search_code.lower().strip()
         mask = (
@@ -167,4 +164,4 @@ if st.session_state.df is not None:
 """
                 st.markdown(html_card, unsafe_allow_html=True)
         else:
-            st.error(f"Код '{search_code}' не знайдено")
+            st.error(f"Нічого не знайдено: '{search_code}'")
