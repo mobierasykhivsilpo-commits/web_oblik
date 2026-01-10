@@ -15,7 +15,7 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* 1. РОБИМО ВКЛАДКИ НА ВСЮ ШИРИНУ (50/50) */
+    /* ВКЛАДКИ НА ВСЮ ШИРИНУ */
     button[data-baseweb="tab"] {
         flex: 1; width: 100%; justify-content: center;
     }
@@ -44,22 +44,14 @@ st.markdown("""
     .price-block { text-align: right; width: 30%; }
     .price-val { font-size: 24px; font-weight: 800; color: #2e7d32; }
     
-    /* Кнопки */
-    button[kind="secondary"] { height: 2.5rem; margin-top: 0px !important; width: 100%; }
+    /* Кнопки (включаючи кнопку з назвою файлу) */
+    button[kind="secondary"] { 
+        height: 2.5rem; 
+        margin-top: 0px !important; 
+        width: 100%; 
+        border: 1px solid #ddd;
+    }
     div[data-testid="stCameraInput"] button { background-color: #2e7d32; color: white; border: none; }
-    
-    /* ВИПРАВЛЕННЯ ДЛЯ НАЗВИ ФАЙЛУ (В ОДНУ СТРОКУ) */
-    .file-label-container {
-        display: flex;
-        align-items: center; /* Центрування по вертикалі */
-        justify-content: flex-end; /* Притиснути вправо */
-        height: 2.5rem; /* Висота як у кнопки */
-    }
-    .file-label {
-        font-size: 13px; color: #666; 
-        text-align: right;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -140,24 +132,13 @@ if st.session_state.df is None:
             st.session_state.filename = uploaded_file.name
             st.rerun()
 else:
-    # --- ВИПРАВЛЕНИЙ БЛОК ВЕРХНЬОЇ ПАНЕЛІ ---
-    # Використовуємо пропорцію [0.35, 0.65], щоб кнопка була компактною, а для тексту було місце
-    # gap="small" зменшує відступ між ними
-    col_btn, col_info = st.columns([0.35, 0.65], gap="small")
-    
-    with col_btn:
-        if st.button("📂 Змінити", type="secondary"):
-            st.session_state.df = None
-            st.session_state.filename = ""
-            st.rerun()
-            
-    with col_info:
-        # Спеціальний контейнер для вирівнювання по центру висоти кнопки
-        st.markdown(f"""
-        <div class="file-label-container">
-            <div class='file-label'>Файл: <b>{st.session_state.filename}</b></div>
-        </div>
-        """, unsafe_allow_html=True)
+    # --- ТУТ ЗМІНИ ---
+    # Кнопка тепер має назву файлу
+    # Використовуємо use_container_width=True, щоб розтягнути її на весь екран (якщо CSS не підхопить)
+    if st.button(f"📂 {st.session_state.filename}", type="secondary", use_container_width=True):
+        st.session_state.df = None
+        st.session_state.filename = ""
+        st.rerun()
 
 # --- Основна частина ---
 if st.session_state.df is not None:
