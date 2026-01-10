@@ -1,6 +1,8 @@
 streamlit
 pandas
 openpyxl
-xlrd
 Pillow
 pyzbar
+streamlit-webrtc
+opencv-python-headless
+av
