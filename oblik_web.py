@@ -10,10 +10,7 @@ st.set_page_config(page_title="Облік", page_icon="📦", layout="centered",
 st.markdown("""
     <style>
     /* 1. ПРИБИРАЄМО ВІДСТУП ЗВЕРХУ */
-    .block-container {
-        padding-top: 1rem;
-        padding-bottom: 0rem;
-    }
+    .block-container { padding-top: 1rem; padding-bottom: 0rem; }
     
     /* Ховаємо меню */
     #MainMenu {visibility: hidden;}
@@ -30,24 +27,15 @@ st.markdown("""
         border: 1px solid #eee;
     }
     .product-name {
-        font-size: 18px;
-        font-weight: 700;
-        color: #1f1f1f;
-        margin-bottom: 4px;
-        line-height: 1.3;
+        font-size: 18px; font-weight: 700; color: #1f1f1f;
+        margin-bottom: 4px; line-height: 1.3;
     }
     .product-code {
-        font-size: 13px;
-        color: #888;
-        margin-bottom: 15px;
-        font-family: monospace;
+        font-size: 13px; color: #888; margin-bottom: 15px; font-family: monospace;
     }
     .stats-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-end;
-        border-top: 1px solid #f0f0f0;
-        padding-top: 10px;
+        display: flex; justify-content: space-between; align-items: flex-end;
+        border-top: 1px solid #f0f0f0; padding-top: 10px;
     }
     .profit-block { text-align: left; }
     .profit-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; }
@@ -57,11 +45,16 @@ st.markdown("""
     .price-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; }
     .price-val { font-size: 24px; font-weight: 800; color: #2e7d32; }
     
-    /* Кнопки */
+    /* Стилізація завантажувача під кнопку */
+    [data-testid='stFileUploader'] {
+        width: 100%;
+    }
+    [data-testid='stFileUploader'] section {
+        padding: 0;
+        background-color: #f0f2f6;
+    }
     button[kind="secondary"] {
-        height: 2.5rem;
-        font-size: 16px !important;
-        margin-top: 0px !important;
+        height: 2.5rem; font-size: 16px !important; margin-top: 0px !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -87,11 +80,8 @@ def load_data(uploaded_file):
                 break
         
         mapping = {
-            "name": start_col,
-            "profit": start_col + 4,
-            "price": start_col + 5,
-            "art": start_col + 6,
-            "code": start_col + 7
+            "name": start_col, "profit": start_col + 4,
+            "price": start_col + 5, "art": start_col + 6, "code": start_col + 7
         }
         
         processed_data = []
@@ -99,7 +89,6 @@ def load_data(uploaded_file):
             try:
                 price = float(row.iloc[mapping['price']]) if pd.notna(row.iloc[mapping['price']]) else 0
                 profit = float(row.iloc[mapping['profit']]) if pd.notna(row.iloc[mapping['profit']]) else 0
-                
                 code_val = str(row.iloc[mapping['code']])
                 if code_val.endswith(".0"): code_val = code_val.replace(".0", "")
                 
@@ -118,11 +107,10 @@ def load_data(uploaded_file):
 # --- UI ---
 st.markdown("<h3 style='text-align: center; margin-bottom: 10px; margin-top: 0px;'>Облік</h3>", unsafe_allow_html=True)
 
-# Стан
 if 'df' not in st.session_state:
     st.session_state.df = None
 
-# Завантаження
+# Завантаження бази
 if st.session_state.df is None:
     uploaded_file = st.file_uploader("Завантажити Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
     if uploaded_file:
@@ -131,38 +119,40 @@ if st.session_state.df is None:
             st.session_state.df = df
             st.rerun()
 else:
-    # Кнопка для зміни файлу (компактна)
     col_btn, col_empty = st.columns([1, 2])
     with col_btn:
         if st.button("📂 Змінити файл", type="secondary"):
             st.session_state.df = None
             st.rerun()
 
-# Основна логіка
 if st.session_state.df is not None:
     df = st.session_state.df
     
-    # Вкладки
-    tab1, tab2 = st.tabs(["📸 Камера", "⌨️ Пошук"])
+    tab1, tab2 = st.tabs(["📸 Сканер", "⌨️ Пошук"])
     
     with tab1:
-        img_file = st.camera_input("Натисніть для фото", label_visibility="collapsed")
+        # ТУТ ГОЛОВНА ЗМІНА: Використовуємо file_uploader замість camera_input
+        # На мобільному це відкриє меню вибору: Камера або Файли
+        img_file = st.file_uploader("Зробити фото", type=['png', 'jpg', 'jpeg'], label_visibility="collapsed")
         
         search_code = ""
         if img_file:
-            image = Image.open(img_file)
-            decoded_objects = decode(image)
-            if decoded_objects:
-                search_code = decoded_objects[0].data.decode("utf-8")
-            else:
-                st.warning("Штрихкод не видно")
-    
+            try:
+                image = Image.open(img_file)
+                decoded_objects = decode(image)
+                if decoded_objects:
+                    search_code = decoded_objects[0].data.decode("utf-8")
+                else:
+                    st.warning("⚠️ Штрихкод не розпізнано. Спробуйте ще раз з кращим фокусом.")
+            except Exception as e:
+                st.error("Помилка обробки фото")
+
     with tab2:
         manual_code = st.text_input("Код або назва", placeholder="Введіть...", label_visibility="collapsed")
         if manual_code:
             search_code = manual_code
 
-    # Результат
+    # Результати
     if search_code:
         query = search_code.lower().strip()
         mask = (
