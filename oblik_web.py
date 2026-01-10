@@ -17,9 +17,7 @@ st.markdown("""
     
     /* 1. РОБИМО ВКЛАДКИ НА ВСЮ ШИРИНУ (50/50) */
     button[data-baseweb="tab"] {
-        flex: 1; /* Розтягуємо кожну кнопку */
-        width: 100%;
-        justify-content: center;
+        flex: 1; width: 100%; justify-content: center;
     }
     
     /* Картка товару */
@@ -47,13 +45,20 @@ st.markdown("""
     .price-val { font-size: 24px; font-weight: 800; color: #2e7d32; }
     
     /* Кнопки */
-    button[kind="secondary"] { height: 2.5rem; margin-top: 0px !important; }
+    button[kind="secondary"] { height: 2.5rem; margin-top: 0px !important; width: 100%; }
     div[data-testid="stCameraInput"] button { background-color: #2e7d32; color: white; border: none; }
     
-    /* Назва файлу */
+    /* ВИПРАВЛЕННЯ ДЛЯ НАЗВИ ФАЙЛУ (В ОДНУ СТРОКУ) */
+    .file-label-container {
+        display: flex;
+        align-items: center; /* Центрування по вертикалі */
+        justify-content: flex-end; /* Притиснути вправо */
+        height: 2.5rem; /* Висота як у кнопки */
+    }
     .file-label {
-        font-size: 13px; color: #666; margin-top: 8px; text-align: right;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%;
+        font-size: 13px; color: #666; 
+        text-align: right;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -135,20 +140,29 @@ if st.session_state.df is None:
             st.session_state.filename = uploaded_file.name
             st.rerun()
 else:
-    col_btn, col_info = st.columns([1, 2])
+    # --- ВИПРАВЛЕНИЙ БЛОК ВЕРХНЬОЇ ПАНЕЛІ ---
+    # Використовуємо пропорцію [0.35, 0.65], щоб кнопка була компактною, а для тексту було місце
+    # gap="small" зменшує відступ між ними
+    col_btn, col_info = st.columns([0.35, 0.65], gap="small")
+    
     with col_btn:
         if st.button("📂 Змінити", type="secondary"):
             st.session_state.df = None
             st.session_state.filename = ""
             st.rerun()
+            
     with col_info:
-        st.markdown(f"<div class='file-label'>База: <b>{st.session_state.filename}</b></div>", unsafe_allow_html=True)
+        # Спеціальний контейнер для вирівнювання по центру висоти кнопки
+        st.markdown(f"""
+        <div class="file-label-container">
+            <div class='file-label'>Файл: <b>{st.session_state.filename}</b></div>
+        </div>
+        """, unsafe_allow_html=True)
 
 # --- Основна частина ---
 if st.session_state.df is not None:
     df = st.session_state.df
     
-    # Вкладки тепер будуть на всю ширину завдяки CSS вище
     tab_scan, tab_manual = st.tabs(["📹 Сканер", "⌨️ Пошук"])
     search_code = ""
 
