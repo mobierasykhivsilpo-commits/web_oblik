@@ -9,52 +9,31 @@ st.set_page_config(page_title="Облік", page_icon="📦", layout="centered",
 # --- CSS Стилі ---
 st.markdown("""
     <style>
-    /* 1. ПРИБИРАЄМО ВІДСТУП ЗВЕРХУ */
     .block-container { padding-top: 1rem; padding-bottom: 0rem; }
-    
-    /* Ховаємо меню */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Стиль картки */
     .product-card {
-        background-color: #ffffff;
-        padding: 15px;
-        border-radius: 12px;
-        margin-bottom: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        border: 1px solid #eee;
+        background-color: #ffffff; padding: 15px; border-radius: 12px;
+        margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #eee;
     }
-    .product-name {
-        font-size: 18px; font-weight: 700; color: #1f1f1f;
-        margin-bottom: 4px; line-height: 1.3;
-    }
-    .product-code {
-        font-size: 13px; color: #888; margin-bottom: 15px; font-family: monospace;
-    }
-    .stats-row {
-        display: flex; justify-content: space-between; align-items: flex-end;
-        border-top: 1px solid #f0f0f0; padding-top: 10px;
-    }
+    .product-name { font-size: 18px; font-weight: 700; color: #1f1f1f; margin-bottom: 4px; line-height: 1.3; }
+    .product-code { font-size: 13px; color: #888; margin-bottom: 15px; font-family: monospace; }
+    .stats-row { display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid #f0f0f0; padding-top: 10px; }
     .profit-block { text-align: left; }
     .profit-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; }
     .profit-val { font-size: 16px; font-weight: 600; color: #444; }
-    
     .price-block { text-align: right; }
     .price-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; }
     .price-val { font-size: 24px; font-weight: 800; color: #2e7d32; }
     
-    /* Стилізація завантажувача під кнопку */
-    [data-testid='stFileUploader'] {
-        width: 100%;
-    }
-    [data-testid='stFileUploader'] section {
-        padding: 0;
-        background-color: #f0f2f6;
-    }
-    button[kind="secondary"] {
-        height: 2.5rem; font-size: 16px !important; margin-top: 0px !important;
+    /* Стиль кнопок */
+    button[kind="secondary"] { height: 2.5rem; margin-top: 0px !important; }
+    
+    /* Збільшуємо область кліку для камери */
+    div[data-testid="stCameraInput"] button {
+        background-color: #2e7d32; color: white;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -110,7 +89,6 @@ st.markdown("<h3 style='text-align: center; margin-bottom: 10px; margin-top: 0px
 if 'df' not in st.session_state:
     st.session_state.df = None
 
-# Завантаження бази
 if st.session_state.df is None:
     uploaded_file = st.file_uploader("Завантажити Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
     if uploaded_file:
@@ -128,31 +106,42 @@ else:
 if st.session_state.df is not None:
     df = st.session_state.df
     
-    tab1, tab2 = st.tabs(["📸 Сканер", "⌨️ Пошук"])
+    # ДВІ ВКЛАДКИ ДЛЯ ЗРУЧНОСТІ
+    tab_live, tab_file, tab_manual = st.tabs(["📹 Жива камера", "📸 Якісне фото", "⌨️ Пошук"])
     
-    with tab1:
-        # ТУТ ГОЛОВНА ЗМІНА: Використовуємо file_uploader замість camera_input
-        # На мобільному це відкриє меню вибору: Камера або Файли
-        img_file = st.file_uploader("Зробити фото", type=['png', 'jpg', 'jpeg'], label_visibility="collapsed")
-        
-        search_code = ""
+    search_code = ""
+
+    # 1. Жива камера (Швидко)
+    with tab_live:
+        st.caption("Натисніть 'Take Photo' для сканування.")
+        # Цей віджет дозволяє перемикати камери (шукайте значок перемикача на екрані)
+        img_buffer = st.camera_input("Scanner", label_visibility="collapsed")
+        if img_buffer:
+            image = Image.open(img_buffer)
+            decoded = decode(image)
+            if decoded:
+                search_code = decoded[0].data.decode("utf-8")
+            else:
+                st.warning("Спробуйте піднести ближче")
+
+    # 2. Завантаження (Якісно)
+    with tab_file:
+        st.info("Використовує рідну камеру (спалах/зум).")
+        img_file = st.file_uploader("Фото", type=['png', 'jpg', 'jpeg'], label_visibility="collapsed", key="uploader")
         if img_file:
-            try:
-                image = Image.open(img_file)
-                decoded_objects = decode(image)
-                if decoded_objects:
-                    search_code = decoded_objects[0].data.decode("utf-8")
-                else:
-                    st.warning("⚠️ Штрихкод не розпізнано. Спробуйте ще раз з кращим фокусом.")
-            except Exception as e:
-                st.error("Помилка обробки фото")
+            image = Image.open(img_file)
+            decoded = decode(image)
+            if decoded:
+                search_code = decoded[0].data.decode("utf-8")
+            else:
+                st.warning("Код не знайдено")
 
-    with tab2:
-        manual_code = st.text_input("Код або назва", placeholder="Введіть...", label_visibility="collapsed")
-        if manual_code:
-            search_code = manual_code
+    # 3. Ручний пошук
+    with tab_manual:
+        manual = st.text_input("Код/Назва", label_visibility="collapsed")
+        if manual: search_code = manual
 
-    # Результати
+    # --- Результат ---
     if search_code:
         query = search_code.lower().strip()
         mask = (
@@ -171,14 +160,8 @@ if st.session_state.df is not None:
 <div class="product-name">{row['Найменування']}</div>
 <div class="product-code">Код: {row['Код']}</div>
 <div class="stats-row">
-<div class="profit-block">
-<div class="profit-label">Прибуток</div>
-<div class="profit-val">{row['Прибуток']}</div>
-</div>
-<div class="price-block">
-<div class="price-label">Ціна</div>
-<div class="price-val">{row['Ціна']} ₴</div>
-</div>
+<div class="profit-block"><div class="profit-label">Прибуток</div><div class="profit-val">{row['Прибуток']}</div></div>
+<div class="price-block"><div class="price-label">Ціна</div><div class="price-val">{row['Ціна']} ₴</div></div>
 </div>
 </div>
 """
