@@ -2,24 +2,25 @@ import streamlit as st
 import pandas as pd
 from PIL import Image
 from pyzbar.pyzbar import decode
-import io
 
 # --- Налаштування сторінки ---
-st.set_page_config(page_title="Облік", page_icon="📦", layout="centered")
+st.set_page_config(page_title="Облік", page_icon="📦", layout="centered", initial_sidebar_state="collapsed")
 
-# --- CSS Стилі (Дизайн) ---
+# --- CSS Стилі ---
 st.markdown("""
     <style>
+    /* Ховаємо меню */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    header {visibility: hidden;}
     
-    /* Стилі для картки товару */
+    /* Стиль картки */
     .product-card {
         background-color: #ffffff;
         padding: 15px;
         border-radius: 12px;
         margin-bottom: 12px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         border: 1px solid #eee;
     }
     .product-name {
@@ -42,33 +43,18 @@ st.markdown("""
         border-top: 1px solid #f0f0f0;
         padding-top: 10px;
     }
-    .profit-block {
-        text-align: left;
-    }
-    .profit-label {
-        font-size: 11px;
-        text-transform: uppercase;
-        color: #888;
-        font-weight: 600;
-    }
-    .profit-val {
-        font-size: 16px;
-        font-weight: 600;
-        color: #444;
-    }
-    .price-block {
-        text-align: right;
-    }
-    .price-label {
-        font-size: 11px;
-        text-transform: uppercase;
-        color: #888;
-        font-weight: 600;
-    }
-    .price-val {
-        font-size: 22px;
-        font-weight: 800;
-        color: #2e7d32;
+    .profit-block { text-align: left; }
+    .profit-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; }
+    .profit-val { font-size: 16px; font-weight: 600; color: #444; }
+    
+    .price-block { text-align: right; }
+    .price-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; }
+    .price-val { font-size: 24px; font-weight: 800; color: #2e7d32; }
+    
+    /* Робимо кнопку камери більшою (візуально) */
+    button[kind="secondary"] {
+        height: 3rem;
+        font-size: 18px !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -122,63 +108,84 @@ def load_data(uploaded_file):
     except Exception as e:
         return None
 
-# --- Головний екран ---
-st.title("Облік")
+# --- UI ---
+# Заголовок ще менший, щоб економити місце
+st.markdown("<h3 style='text-align: center; margin-bottom: 5px;'>Облік</h3>", unsafe_allow_html=True)
 
-uploaded_file = st.file_uploader("Завантажити Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
+# Стан (щоб пам'ятати файл після перезавантаження сторінки)
+if 'df' not in st.session_state:
+    st.session_state.df = None
 
-if uploaded_file:
-    df = load_data(uploaded_file)
-    if df is not None:
-        st.success(f"База: {len(df)} поз.", icon="✅")
-        
-        mode = st.radio("Режим:", ["⌨️ Вручну", "📸 Камера"], horizontal=True, label_visibility="collapsed")
+# Завантаження (згорнуте, якщо файл вже є)
+if st.session_state.df is None:
+    uploaded_file = st.file_uploader("Завантажити Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
+    if uploaded_file:
+        df = load_data(uploaded_file)
+        if df is not None:
+            st.session_state.df = df
+            st.rerun() # Перезавантажити, щоб сховати завантажувач
+else:
+    # Кнопка для зміни файлу (маленька зверху)
+    if st.button("📂 Змінити файл бази", type="secondary"):
+        st.session_state.df = None
+        st.rerun()
+
+# Основна логіка (якщо база є)
+if st.session_state.df is not None:
+    df = st.session_state.df
+    
+    # Вкладки для вибору методу
+    tab1, tab2 = st.tabs(["📸 Камера", "⌨️ Пошук"])
+    
+    with tab1:
+        # Камера - це основний елемент
+        img_file = st.camera_input("Натисніть для фото", label_visibility="collapsed")
         
         search_code = ""
-        
-        if mode == "📸 Камера":
-            img_file = st.camera_input("Фото штрихкоду", label_visibility="collapsed")
-            if img_file:
-                image = Image.open(img_file)
-                decoded_objects = decode(image)
-                if decoded_objects:
-                    search_code = decoded_objects[0].data.decode("utf-8")
-                else:
-                    st.warning("Код не знайдено")
-        else:
-            search_code = st.text_input("Пошук", placeholder="Введіть код або назву")
+        if img_file:
+            image = Image.open(img_file)
+            decoded_objects = decode(image)
+            if decoded_objects:
+                search_code = decoded_objects[0].data.decode("utf-8")
+            else:
+                st.warning("Штрихкод не видно. Спробуйте ближче.")
+    
+    with tab2:
+        manual_code = st.text_input("Код або назва", placeholder="Введіть...", label_visibility="collapsed")
+        if manual_code:
+            search_code = manual_code
 
-        # --- Результати ---
-        if search_code:
-            query = search_code.lower().strip()
-            mask = (
-                df['Найменування'].str.lower().str.contains(query, na=False) |
-                df['Код'].str.lower().str.contains(query, na=False) |
-                df['Артикул'].str.lower().str.contains(query, na=False)
-            )
-            results = df[mask]
-            
-            st.write("") 
-            
-            if not results.empty:
-                for _, row in results.iterrows():
-                    # УВАГА: Тут важливо, щоб рядки HTML були притиснуті до лівого краю (без відступів)
-                    html_card = f"""
+    # Відображення
+    if search_code:
+        query = search_code.lower().strip()
+        mask = (
+            df['Найменування'].str.lower().str.contains(query, na=False) |
+            df['Код'].str.lower().str.contains(query, na=False) |
+            df['Артикул'].str.lower().str.contains(query, na=False)
+        )
+        results = df[mask]
+        
+        st.markdown("---")
+        
+        if not results.empty:
+            for _, row in results.iterrows():
+                # HTML без відступів
+                html_card = f"""
 <div class="product-card">
-    <div class="product-name">{row['Найменування']}</div>
-    <div class="product-code">Код: {row['Код']}</div>
-    <div class="stats-row">
-        <div class="profit-block">
-            <div class="profit-label">Прибуток</div>
-            <div class="profit-val">{row['Прибуток']}</div>
-        </div>
-        <div class="price-block">
-            <div class="price-label">Ціна</div>
-            <div class="price-val">{row['Ціна']} ₴</div>
-        </div>
-    </div>
+<div class="product-name">{row['Найменування']}</div>
+<div class="product-code">Код: {row['Код']}</div>
+<div class="stats-row">
+<div class="profit-block">
+<div class="profit-label">Прибуток</div>
+<div class="profit-val">{row['Прибуток']}</div>
+</div>
+<div class="price-block">
+<div class="price-label">Ціна</div>
+<div class="price-val">{row['Ціна']} ₴</div>
+</div>
+</div>
 </div>
 """
-                    st.markdown(html_card, unsafe_allow_html=True)
-            else:
-                st.error("Товар не знайдено")
+                st.markdown(html_card, unsafe_allow_html=True)
+        else:
+            st.error(f"Код '{search_code}' не знайдено")
