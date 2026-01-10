@@ -2,19 +2,21 @@ import streamlit as st
 import pandas as pd
 from PIL import Image
 from pyzbar.pyzbar import decode
-import os
 
-# --- Налаштування ---
+# --- Налаштування сторінки ---
 st.set_page_config(page_title="Облік", page_icon="📦", layout="centered", initial_sidebar_state="collapsed")
 
 # --- CSS Стилі ---
 st.markdown("""
     <style>
+    /* Підтягуємо контент вгору */
     .block-container { padding-top: 1rem; padding-bottom: 0rem; }
+    
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
+    /* Картка товару */
     .product-card {
         background-color: #ffffff; padding: 15px; border-radius: 12px;
         margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #eee;
@@ -22,15 +24,29 @@ st.markdown("""
     .product-name { font-size: 18px; font-weight: 700; color: #1f1f1f; margin-bottom: 4px; line-height: 1.3; }
     .product-code { font-size: 13px; color: #888; margin-bottom: 15px; font-family: monospace; }
     
-    .stats-row { display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid #f0f0f0; padding-top: 10px; }
+    /* Ряд зі статистикою (3 колонки) */
+    .stats-row { 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: flex-end; 
+        border-top: 1px solid #f0f0f0; 
+        padding-top: 10px; 
+    }
     
-    .profit-block { text-align: left; }
-    .profit-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; }
+    /* Заголовки (Purchase, Profit, Price) */
+    .stat-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; margin-bottom: 2px;}
+    
+    /* 1. ЗАКУП (Лівий край, Червоний) */
+    .purchase-block { text-align: left; width: 30%; }
+    .purchase-val { font-size: 24px; font-weight: 800; color: #d32f2f; } /* Червоний */
+    
+    /* 2. ПРИБУТОК (Центр, Сірий) */
+    .profit-block { text-align: center; width: 40%; }
     .profit-val { font-size: 24px; font-weight: 800; color: #444; }
     
-    .price-block { text-align: right; }
-    .price-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; }
-    .price-val { font-size: 24px; font-weight: 800; color: #2e7d32; }
+    /* 3. ЦІНА (Правий край, Зелений) */
+    .price-block { text-align: right; width: 30%; }
+    .price-val { font-size: 24px; font-weight: 800; color: #2e7d32; } /* Зелений */
     
     button[kind="secondary"] { height: 2.5rem; margin-top: 0px !important; }
     div[data-testid="stCameraInput"] button { background-color: #2e7d32; color: white; border: none; }
@@ -44,20 +60,12 @@ def format_number(val):
     except: return str(val)
 
 @st.cache_data
-def load_data(file_path_or_buffer):
+def load_data(uploaded_file):
     try:
-        # Перевіряємо, чи це шлях до файлу (str) чи завантажений об'єкт
-        if isinstance(file_path_or_buffer, str):
-            engine = 'openpyxl' # Для локального файлу зазвичай xlsx
-            header = None
+        if uploaded_file.name.endswith('.xls'):
+            df = pd.read_excel(uploaded_file, engine='xlrd', header=None)
         else:
-            if file_path_or_buffer.name.endswith('.xls'):
-                engine = 'xlrd'
-            else:
-                engine = 'openpyxl'
-            header = None
-
-        df = pd.read_excel(file_path_or_buffer, engine=engine, header=header)
+            df = pd.read_excel(uploaded_file, engine='openpyxl', header=None)
         
         start_col = 0
         for col_idx in range(df.shape[1]):
@@ -75,11 +83,14 @@ def load_data(file_path_or_buffer):
             try:
                 price = float(row.iloc[mapping['price']]) if pd.notna(row.iloc[mapping['price']]) else 0
                 profit = float(row.iloc[mapping['profit']]) if pd.notna(row.iloc[mapping['profit']]) else 0
+                purchase = price - profit  # Розраховуємо закуп
+                
                 code_val = str(row.iloc[mapping['code']])
                 if code_val.endswith(".0"): code_val = code_val.replace(".0", "")
                 
                 processed_data.append({
                     "Найменування": str(row.iloc[mapping['name']]),
+                    "Закуп": format_number(purchase),
                     "Прибуток": format_number(profit),
                     "Ціна": format_number(price),
                     "Код": code_val,
@@ -96,37 +107,20 @@ st.markdown("<h3 style='text-align: center; margin-bottom: 10px; margin-top: 0px
 if 'df' not in st.session_state:
     st.session_state.df = None
 
-# ЛОГІКА АВТОЗАВАНТАЖЕННЯ
-# Якщо файл data.xlsx є на сервері (в GitHub) - вантажимо його
-default_file = "data.xlsx"
-
 if st.session_state.df is None:
-    # 1. Спробувати знайти файл на сервері
-    if os.path.exists(default_file):
-        # st.info(f"Знайдено базу: {default_file}") # Можна розкоментувати для налагодження
-        df = load_data(default_file)
-        if df is not None:
-            st.session_state.df = df
-            st.rerun()
-    
-    # 2. Якщо файлу немає, показати кнопку завантаження
     uploaded_file = st.file_uploader("Завантажити Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
     if uploaded_file:
         df = load_data(uploaded_file)
         if df is not None:
             st.session_state.df = df
             st.rerun()
-
 else:
-    # Кнопка зміни файлу
     col_btn, col_empty = st.columns([1, 2])
     with col_btn:
-        # Якщо файл був з сервера, кнопка дозволить завантажити свій
-        if st.button("📂 Інший файл", type="secondary"):
+        if st.button("📂 Змінити файл", type="secondary"):
             st.session_state.df = None
             st.rerun()
 
-# --- Робоча зона ---
 if st.session_state.df is not None:
     df = st.session_state.df
     
@@ -160,14 +154,28 @@ if st.session_state.df is not None:
         
         if not results.empty:
             for _, row in results.iterrows():
+                # HTML З ТРЬОМА КОЛОНКАМИ
                 html_card = f"""
 <div class="product-card">
-<div class="product-name">{row['Найменування']}</div>
-<div class="product-code">Код: {row['Код']}</div>
-<div class="stats-row">
-<div class="profit-block"><div class="profit-label">Прибуток</div><div class="profit-val">{row['Прибуток']}</div></div>
-<div class="price-block"><div class="price-label">Ціна</div><div class="price-val">{row['Ціна']} ₴</div></div>
-</div>
+    <div class="product-name">{row['Найменування']}</div>
+    <div class="product-code">Код: {row['Код']}</div>
+    
+    <div class="stats-row">
+        <div class="purchase-block">
+            <div class="stat-label">Закуп</div>
+            <div class="purchase-val">{row['Закуп']}</div>
+        </div>
+        
+        <div class="profit-block">
+            <div class="stat-label">Прибуток</div>
+            <div class="profit-val">{row['Прибуток']}</div>
+        </div>
+        
+        <div class="price-block">
+            <div class="stat-label">Ціна</div>
+            <div class="price-val">{row['Ціна']} ₴</div>
+        </div>
+    </div>
 </div>
 """
                 st.markdown(html_card, unsafe_allow_html=True)
