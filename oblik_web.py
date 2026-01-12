@@ -52,16 +52,22 @@ def format_number(val):
 @st.cache_data(show_spinner=False)
 def load_data(file_path_or_buffer):
     try:
-        if isinstance(file_path_or_buffer, str):
-            engine = 'openpyxl'
-            header = None
-        else:
-            if file_path_or_buffer.name.endswith('.xls'): engine = 'xlrd'
-            else: engine = 'openpyxl'
-            header = None
-
-        df = pd.read_excel(file_path_or_buffer, engine=engine, header=header)
+        # ЛОГІКА ВИБОРУ РУШІЯ (ENGINE)
+        engine = 'openpyxl' # За замовчуванням
         
+        # 1. Якщо це шлях до файлу (рядок) - автозавантаження
+        if isinstance(file_path_or_buffer, str):
+            if file_path_or_buffer.lower().endswith('.xls'):
+                engine = 'xlrd'
+        # 2. Якщо це завантажений об'єкт (UploadedFile)
+        else:
+            if file_path_or_buffer.name.lower().endswith('.xls'):
+                engine = 'xlrd'
+
+        # Читаємо файл
+        df = pd.read_excel(file_path_or_buffer, engine=engine, header=None)
+        
+        # Шукаємо початок таблиці
         start_col = 0
         found_data = False
         for col_idx in range(df.shape[1]):
@@ -80,7 +86,7 @@ def load_data(file_path_or_buffer):
         }
         
         if df.shape[1] <= mapping['code']:
-             st.error(f"⚠️ Файл має нестандартну структуру.")
+             st.error(f"⚠️ Нестандартна структура файлу.")
              return None
 
         processed_data = []
@@ -119,22 +125,27 @@ if 'df' not in st.session_state: st.session_state.df = None
 if 'filename' not in st.session_state: st.session_state.filename = ""
 if 'manual_mode' not in st.session_state: st.session_state.manual_mode = False
 
-default_file = "data.xlsx"
-has_default = os.path.exists(default_file)
+# --- ПОШУК ФАЙЛУ ЗА ЗАМОВЧУВАННЯМ (.xlsx або .xls) ---
+default_file = None
+if os.path.exists("data.xlsx"):
+    default_file = "data.xlsx"
+elif os.path.exists("data.xls"):
+    default_file = "data.xls"
+
+has_default = default_file is not None
 
 # --- ЛОГІКА ЗАВАНТАЖЕННЯ ---
 if st.session_state.df is None:
-    # 1. АВТОЗАВАНТАЖЕННЯ (з датою)
+    # 1. АВТОЗАВАНТАЖЕННЯ
     if has_default and not st.session_state.manual_mode:
-        # Визначаємо дату зміни файлу
+        # Визначаємо дату
         try:
             timestamp = os.path.getmtime(default_file)
-            # Додаємо +2 години (приблизно для Києва), бо сервер часто в UTC
             dt_obj = datetime.fromtimestamp(timestamp) + timedelta(hours=2) 
             date_str = dt_obj.strftime("%d.%m %H:%M")
-            display_name = f"data.xlsx (від {date_str})"
+            display_name = f"{default_file} ({date_str})"
         except:
-            display_name = "data.xlsx (Авто)"
+            display_name = f"{default_file} (Авто)"
 
         with st.spinner("Завантаження бази..."):
             df = load_data(default_file)
@@ -151,7 +162,6 @@ if st.session_state.df is None:
     uploaded_file = st.file_uploader("Оберіть файл Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
     
     if has_default and st.session_state.manual_mode:
-        # Кнопка для повернення, якщо передумали
         if st.button("↩️ Використати файл з сервера", use_container_width=True):
             st.session_state.manual_mode = False
             st.rerun()
@@ -165,7 +175,7 @@ if st.session_state.df is None:
             st.rerun()
 
 else:
-    # Кнопка для зміни файлу (показує назву і дату)
+    # Кнопка для зміни файлу
     if st.button(f"📂 {st.session_state.filename}", type="secondary", use_container_width=True):
         st.session_state.df = None
         st.session_state.filename = ""
