@@ -3,6 +3,7 @@ import pandas as pd
 from PIL import Image
 from pyzbar.pyzbar import decode
 import os
+from datetime import datetime, timedelta
 
 # --- Налаштування сторінки ---
 st.set_page_config(page_title="Облік", page_icon="📦", layout="centered", initial_sidebar_state="collapsed")
@@ -48,11 +49,9 @@ def format_number(val):
     try: return str(int(round(float(val))))
     except: return str(val)
 
-# ФУНКЦІЯ ЗАВАНТАЖЕННЯ З ВІДОБРАЖЕННЯМ ПОМИЛОК
 @st.cache_data(show_spinner=False)
 def load_data(file_path_or_buffer):
     try:
-        # Визначаємо рушій для читання
         if isinstance(file_path_or_buffer, str):
             engine = 'openpyxl'
             header = None
@@ -61,10 +60,8 @@ def load_data(file_path_or_buffer):
             else: engine = 'openpyxl'
             header = None
 
-        # Читаємо файл
         df = pd.read_excel(file_path_or_buffer, engine=engine, header=header)
         
-        # Шукаємо початок таблиці
         start_col = 0
         found_data = False
         for col_idx in range(df.shape[1]):
@@ -74,7 +71,7 @@ def load_data(file_path_or_buffer):
                 break
         
         if not found_data:
-            st.error("⚠️ У файлі не знайдено даних (порожні стовпці).")
+            st.error("⚠️ У файлі не знайдено даних.")
             return None
         
         mapping = {
@@ -82,9 +79,8 @@ def load_data(file_path_or_buffer):
             "price": start_col + 5, "art": start_col + 6, "code": start_col + 7
         }
         
-        # Перевірка чи існує стільки стовпців
         if df.shape[1] <= mapping['code']:
-             st.error(f"⚠️ Файл має нестандартну структуру. Очікувалось мінімум {mapping['code']+1} стовпців, а є {df.shape[1]}.")
+             st.error(f"⚠️ Файл має нестандартну структуру.")
              return None
 
         processed_data = []
@@ -107,14 +103,13 @@ def load_data(file_path_or_buffer):
             except: continue
             
         if not processed_data:
-            st.error("⚠️ Не вдалося розпізнати жодного товару. Перевірте структуру файлу.")
+            st.error("⚠️ Не вдалося розпізнати товари.")
             return None
             
         return pd.DataFrame(processed_data)
 
     except Exception as e:
-        # ОСЬ ЦЕ ПОКАЖЕ ВАМ ПРИЧИНУ ПРОБЛЕМИ
-        st.error(f"❌ Помилка читання файлу: {e}")
+        st.error(f"❌ Помилка: {e}")
         return None
 
 # --- UI ---
@@ -127,40 +122,50 @@ if 'manual_mode' not in st.session_state: st.session_state.manual_mode = False
 default_file = "data.xlsx"
 has_default = os.path.exists(default_file)
 
-# ЛОГІКА
+# --- ЛОГІКА ЗАВАНТАЖЕННЯ ---
 if st.session_state.df is None:
-    # Автозавантаження (якщо не ручний режим)
+    # 1. АВТОЗАВАНТАЖЕННЯ (з датою)
     if has_default and not st.session_state.manual_mode:
+        # Визначаємо дату зміни файлу
+        try:
+            timestamp = os.path.getmtime(default_file)
+            # Додаємо +2 години (приблизно для Києва), бо сервер часто в UTC
+            dt_obj = datetime.fromtimestamp(timestamp) + timedelta(hours=2) 
+            date_str = dt_obj.strftime("%d.%m %H:%M")
+            display_name = f"data.xlsx (від {date_str})"
+        except:
+            display_name = "data.xlsx (Авто)"
+
         with st.spinner("Завантаження бази..."):
             df = load_data(default_file)
+            
         if df is not None:
             st.session_state.df = df
-            st.session_state.filename = default_file
+            st.session_state.filename = display_name
             st.rerun()
         else:
-            # Якщо автофайл пошкоджений, переходимо в ручний режим
             st.session_state.manual_mode = True 
             st.rerun()
             
-    # Ручне завантаження
+    # 2. РУЧНЕ ЗАВАНТАЖЕННЯ
     uploaded_file = st.file_uploader("Оберіть файл Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
     
     if has_default and st.session_state.manual_mode:
+        # Кнопка для повернення, якщо передумали
         if st.button("↩️ Використати файл з сервера", use_container_width=True):
             st.session_state.manual_mode = False
             st.rerun()
 
     if uploaded_file:
-        with st.spinner("Обробка файлу..."):
+        with st.spinner("Обробка..."):
             df = load_data(uploaded_file)
-        
         if df is not None:
             st.session_state.df = df
             st.session_state.filename = uploaded_file.name
             st.rerun()
-        # Якщо df is None, помилка вже вивелась функцією load_data, і ми залишаємось тут
+
 else:
-    # Кнопка зміни
+    # Кнопка для зміни файлу (показує назву і дату)
     if st.button(f"📂 {st.session_state.filename}", type="secondary", use_container_width=True):
         st.session_state.df = None
         st.session_state.filename = ""
