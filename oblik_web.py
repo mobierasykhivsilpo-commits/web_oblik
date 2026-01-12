@@ -15,12 +15,8 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* ВКЛАДКИ НА ВСЮ ШИРИНУ */
-    button[data-baseweb="tab"] {
-        flex: 1; width: 100%; justify-content: center;
-    }
+    button[data-baseweb="tab"] { flex: 1; width: 100%; justify-content: center; }
     
-    /* Картка товару */
     .product-card {
         background-color: #ffffff; padding: 15px; border-radius: 12px;
         margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #eee;
@@ -28,11 +24,7 @@ st.markdown("""
     .product-name { font-size: 18px; font-weight: 700; color: #1f1f1f; margin-bottom: 4px; line-height: 1.3; }
     .product-code { font-size: 13px; color: #888; margin-bottom: 15px; font-family: monospace; }
     
-    /* Статистика */
-    .stats-row { 
-        display: flex; justify-content: space-between; align-items: flex-end; 
-        border-top: 1px solid #f0f0f0; padding-top: 10px; 
-    }
+    .stats-row { display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid #f0f0f0; padding-top: 10px; }
     .stat-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; margin-bottom: 2px;}
     
     .purchase-block { text-align: left; width: 30%; }
@@ -44,14 +36,12 @@ st.markdown("""
     .price-block { text-align: right; width: 30%; }
     .price-val { font-size: 24px; font-weight: 800; color: #2e7d32; }
     
-    /* Кнопки (включаючи кнопку з назвою файлу) */
-    button[kind="secondary"] { 
-        height: 2.5rem; 
-        margin-top: 0px !important; 
-        width: 100%; 
-        border: 1px solid #ddd;
-    }
+    /* Кнопка файлу */
+    button[kind="secondary"] { height: 2.5rem; margin-top: 0px !important; width: 100%; border: 1px solid #ddd; }
     div[data-testid="stCameraInput"] button { background-color: #2e7d32; color: white; border: none; }
+    
+    /* Додаткова кнопка для повернення до автофайлу */
+    .small-btn { font-size: 12px; color: #666; text-align: center; cursor: pointer; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -109,35 +99,46 @@ def load_data(file_path_or_buffer):
 # --- UI ---
 st.markdown("<h3 style='text-align: center; margin-bottom: 10px; margin-top: 0px;'>Облік</h3>", unsafe_allow_html=True)
 
-if 'df' not in st.session_state:
-    st.session_state.df = None
-if 'filename' not in st.session_state:
-    st.session_state.filename = ""
+# Ініціалізація стану
+if 'df' not in st.session_state: st.session_state.df = None
+if 'filename' not in st.session_state: st.session_state.filename = ""
+if 'manual_mode' not in st.session_state: st.session_state.manual_mode = False # Прапорець ручного режиму
 
-# Автозавантаження
 default_file = "data.xlsx"
+has_default = os.path.exists(default_file)
+
+# ЛОГІКА ЗАВАНТАЖЕННЯ
 if st.session_state.df is None:
-    if os.path.exists(default_file):
+    # 1. Автозавантаження (ТІЛЬКИ якщо не увімкнено ручний режим)
+    if has_default and not st.session_state.manual_mode:
         df = load_data(default_file)
         if df is not None:
             st.session_state.df = df
             st.session_state.filename = default_file
             st.rerun()
-    
+            
+    # 2. Ручне завантаження (якщо немає файлу або увімкнено ручний режим)
     uploaded_file = st.file_uploader("Завантажити Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
+    
+    # Якщо є файл на сервері, але ми в ручному режимі - даємо кнопку повернутись
+    if has_default and st.session_state.manual_mode:
+        if st.button("↩️ Використати файл з сервера", use_container_width=True):
+            st.session_state.manual_mode = False
+            st.rerun()
+
     if uploaded_file:
         df = load_data(uploaded_file)
         if df is not None:
             st.session_state.df = df
             st.session_state.filename = uploaded_file.name
+            # Не скидаємо manual_mode тут, щоб при натисканні "Змінити" знову відкривався завантажувач
             st.rerun()
 else:
-    # --- ТУТ ЗМІНИ ---
-    # Кнопка тепер має назву файлу
-    # Використовуємо use_container_width=True, щоб розтягнути її на весь екран (якщо CSS не підхопить)
+    # Кнопка з назвою файлу
     if st.button(f"📂 {st.session_state.filename}", type="secondary", use_container_width=True):
         st.session_state.df = None
         st.session_state.filename = ""
+        st.session_state.manual_mode = True # Вмикаємо ручний режим, щоб не спрацювало автозавантаження
         st.rerun()
 
 # --- Основна частина ---
