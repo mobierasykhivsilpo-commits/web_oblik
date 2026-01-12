@@ -3,6 +3,8 @@ import pandas as pd
 from PIL import Image
 from pyzbar.pyzbar import decode
 import os
+import glob
+import re
 from datetime import datetime, timedelta
 
 # --- Налаштування сторінки ---
@@ -37,13 +39,65 @@ st.markdown("""
     .price-block { text-align: right; width: 30%; }
     .price-val { font-size: 24px; font-weight: 800; color: #2e7d32; }
     
-    /* Кнопки */
     button[kind="secondary"] { height: 2.5rem; margin-top: 0px !important; width: 100%; border: 1px solid #ddd; }
     div[data-testid="stCameraInput"] button { background-color: #2e7d32; color: white; border: none; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- Функції ---
+# --- Допоміжні функції пошуку файлів ---
+def extract_date_from_filename(filename: str) -> datetime:
+    """Витягує дату з назви файлу (як у вашій ПК програмі)"""
+    match = re.search(r'(\d{1,2})[.,-](\d{1,2})(?:[.,-](\d{2,4})?)', filename)
+    if not match: return datetime.min
+    
+    day, month, year = match.groups()
+    day, month = int(day), int(month)
+    
+    if year:
+        year = int(year)
+        if year < 100: year += 2000
+    else:
+        year = datetime.now().year
+        
+    try:
+        return datetime(year=year, month=month, day=day)
+    except ValueError:
+        return datetime.min
+
+def find_best_file():
+    """Шукає файли Облік*.xls/x і повертає найсвіжіший"""
+    # Шаблони пошуку (кирилиця і латиниця, різні регістри)
+    patterns = [
+        "Облік*.xls", "Облік*.xlsx", 
+        "oblik*.xls", "oblik*.xlsx",
+        "Oblik*.xls", "Oblik*.xlsx",
+        "облік*.xls", "облік*.xlsx",
+        "обілк*.xls", "обілк*.xlsx", # Враховуємо вашу помилку в слові :)
+        "data.xlsx", "data.xls"      # Запасний варіант
+    ]
+    
+    found_files = []
+    for p in patterns:
+        found_files.extend(glob.glob(p))
+    
+    # Прибираємо дублікати
+    found_files = list(set(found_files))
+    
+    if not found_files:
+        return None
+        
+    # Якщо знайшли один - повертаємо його
+    if len(found_files) == 1:
+        return found_files[0]
+        
+    # Якщо багато - сортуємо по даті в назві (від нових до старих)
+    try:
+        found_files.sort(key=lambda f: extract_date_from_filename(f), reverse=True)
+        return found_files[0]
+    except:
+        return found_files[0] # Якщо не вийшло, беремо перший
+
+# --- Основні функції ---
 def format_number(val):
     if pd.isna(val): return ""
     try: return str(int(round(float(val))))
@@ -52,22 +106,18 @@ def format_number(val):
 @st.cache_data(show_spinner=False)
 def load_data(file_path_or_buffer):
     try:
-        # ЛОГІКА ВИБОРУ РУШІЯ (ENGINE)
-        engine = 'openpyxl' # За замовчуванням
+        engine = 'openpyxl'
+        filename = ""
         
-        # 1. Якщо це шлях до файлу (рядок) - автозавантаження
         if isinstance(file_path_or_buffer, str):
-            if file_path_or_buffer.lower().endswith('.xls'):
-                engine = 'xlrd'
-        # 2. Якщо це завантажений об'єкт (UploadedFile)
+            filename = file_path_or_buffer
+            if filename.lower().endswith('.xls'): engine = 'xlrd'
         else:
-            if file_path_or_buffer.name.lower().endswith('.xls'):
-                engine = 'xlrd'
+            filename = file_path_or_buffer.name
+            if filename.lower().endswith('.xls'): engine = 'xlrd'
 
-        # Читаємо файл
         df = pd.read_excel(file_path_or_buffer, engine=engine, header=None)
         
-        # Шукаємо початок таблиці
         start_col = 0
         found_data = False
         for col_idx in range(df.shape[1]):
@@ -125,30 +175,18 @@ if 'df' not in st.session_state: st.session_state.df = None
 if 'filename' not in st.session_state: st.session_state.filename = ""
 if 'manual_mode' not in st.session_state: st.session_state.manual_mode = False
 
-# --- ПОШУК ФАЙЛУ ЗА ЗАМОВЧУВАННЯМ (.xlsx або .xls) ---
-default_file = None
-if os.path.exists("data.xlsx"):
-    default_file = "data.xlsx"
-elif os.path.exists("data.xls"):
-    default_file = "data.xls"
-
-has_default = default_file is not None
+# Пошук файлу на сервері
+auto_file = find_best_file()
+has_default = auto_file is not None
 
 # --- ЛОГІКА ЗАВАНТАЖЕННЯ ---
 if st.session_state.df is None:
-    # 1. АВТОЗАВАНТАЖЕННЯ
+    # 1. АВТОЗАВАНТАЖЕННЯ (Знайдений файл)
     if has_default and not st.session_state.manual_mode:
-        # Визначаємо дату
-        try:
-            timestamp = os.path.getmtime(default_file)
-            dt_obj = datetime.fromtimestamp(timestamp) + timedelta(hours=2) 
-            date_str = dt_obj.strftime("%d.%m %H:%M")
-            display_name = f"{default_file} ({date_str})"
-        except:
-            display_name = f"{default_file} (Авто)"
-
-        with st.spinner("Завантаження бази..."):
-            df = load_data(default_file)
+        display_name = f"📂 {auto_file}"
+        
+        with st.spinner(f"Завантаження {auto_file}..."):
+            df = load_data(auto_file)
             
         if df is not None:
             st.session_state.df = df
@@ -162,7 +200,7 @@ if st.session_state.df is None:
     uploaded_file = st.file_uploader("Оберіть файл Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
     
     if has_default and st.session_state.manual_mode:
-        if st.button("↩️ Використати файл з сервера", use_container_width=True):
+        if st.button(f"↩️ Використати {auto_file}", use_container_width=True):
             st.session_state.manual_mode = False
             st.rerun()
 
@@ -171,12 +209,12 @@ if st.session_state.df is None:
             df = load_data(uploaded_file)
         if df is not None:
             st.session_state.df = df
-            st.session_state.filename = uploaded_file.name
+            st.session_state.filename = f"📂 {uploaded_file.name}"
             st.rerun()
 
 else:
     # Кнопка для зміни файлу
-    if st.button(f"📂 {st.session_state.filename}", type="secondary", use_container_width=True):
+    if st.button(f"{st.session_state.filename}", type="secondary", use_container_width=True):
         st.session_state.df = None
         st.session_state.filename = ""
         st.session_state.manual_mode = True
