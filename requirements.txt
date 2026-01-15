@@ -5,3 +5,4 @@ pyzbar
 numpy
 openpyxl
 xlrd
+streamlit-barcode-reader
