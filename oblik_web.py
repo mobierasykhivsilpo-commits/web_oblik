@@ -99,7 +99,7 @@ def load_data(file_path_or_buffer):
             except: continue
         return pd.DataFrame(processed_data)
     except Exception as e:
-        st.error(f"Помилка: {e}")
+        st.error(f"Помилка завантаження: {e}")
         return None
 
 # --- UI Логіка ---
@@ -112,7 +112,7 @@ if 'manual_mode' not in st.session_state: st.session_state.manual_mode = False
 auto_file = find_best_file()
 has_default = auto_file is not None
 
-# Логіка завантаження (Твоя оригінальна)
+# Логіка завантаження
 if st.session_state.df is None:
     if has_default and not st.session_state.manual_mode:
         with st.spinner(f"Завантаження {auto_file}..."):
@@ -141,7 +141,8 @@ if st.session_state.df is not None:
 
     with tab_scan:
         st.write("Наведіть камеру на штрихкод")
-        # Новий професійний сканер (працює як відео)
+        # Новий професійний сканер (працює як відеопотік)
+        # Він набагато краще зчитує на бюджетних телефонах
         captured = barcode_reader()
         if captured:
             search_code = captured
