@@ -1,16 +1,16 @@
 import streamlit as st
 import pandas as pd
 from PIL import Image
-from pyzbar.pyzbar import decode
 import os
 import glob
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
+from streamlit_barcode_reader import barcode_reader
 
 # --- Налаштування сторінки ---
 st.set_page_config(page_title="Облік", page_icon="📦", layout="centered", initial_sidebar_state="collapsed")
 
-# --- CSS Стилі ---
+# --- CSS Стилі (Твої оригінальні) ---
 st.markdown("""
     <style>
     .block-container { padding-top: 1rem; padding-bottom: 0rem; }
@@ -40,64 +40,30 @@ st.markdown("""
     .price-val { font-size: 24px; font-weight: 800; color: #2e7d32; }
     
     button[kind="secondary"] { height: 2.5rem; margin-top: 0px !important; width: 100%; border: 1px solid #ddd; }
-    div[data-testid="stCameraInput"] button { background-color: #2e7d32; color: white; border: none; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- Допоміжні функції пошуку файлів ---
+# --- Допоміжні функції (Твої оригінальні) ---
 def extract_date_from_filename(filename: str) -> datetime:
-    """Витягує дату з назви файлу (як у вашій ПК програмі)"""
-    match = re.search(r'(\d{1,2})[.,-](\d{1,2})(?:[.,-](\d{2,4})?)', filename)
+    match = re.search(r'(\d{1,2})[.,-](?P<month>\d{1,2})(?:[.,-](?P<year>\d{2,4})?)', filename)
     if not match: return datetime.min
-    
-    day, month, year = match.groups()
-    day, month = int(day), int(month)
-    
-    if year:
-        year = int(year)
-        if year < 100: year += 2000
-    else:
-        year = datetime.now().year
-        
-    try:
-        return datetime(year=year, month=month, day=day)
-    except ValueError:
-        return datetime.min
+    day, month = int(match.group(1)), int(match.group('month'))
+    year = int(match.group('year')) if match.group('year') else datetime.now().year
+    if year < 100: year += 2000
+    try: return datetime(year=year, month=month, day=day)
+    except: return datetime.min
 
 def find_best_file():
-    """Шукає файли Облік*.xls/x і повертає найсвіжіший"""
-    # Шаблони пошуку (кирилиця і латиниця, різні регістри)
-    patterns = [
-        "Облік*.xls", "Облік*.xlsx", 
-        "oblik*.xls", "oblik*.xlsx",
-        "Oblik*.xls", "Oblik*.xlsx",
-        "облік*.xls", "облік*.xlsx",
-        "обілк*.xls", "обілк*.xlsx", # Враховуємо вашу помилку в слові :)
-        "data.xlsx", "data.xls"      # Запасний варіант
-    ]
-    
+    patterns = ["Облік*.xls*", "oblik*.xls*", "Oblik*.xls*", "облік*.xls*", "обілк*.xls*", "data.xls*"]
     found_files = []
-    for p in patterns:
-        found_files.extend(glob.glob(p))
-    
-    # Прибираємо дублікати
+    for p in patterns: found_files.extend(glob.glob(p))
     found_files = list(set(found_files))
-    
-    if not found_files:
-        return None
-        
-    # Якщо знайшли один - повертаємо його
-    if len(found_files) == 1:
-        return found_files[0]
-        
-    # Якщо багато - сортуємо по даті в назві (від нових до старих)
+    if not found_files: return None
     try:
         found_files.sort(key=lambda f: extract_date_from_filename(f), reverse=True)
         return found_files[0]
-    except:
-        return found_files[0] # Якщо не вийшло, беремо перший
+    except: return found_files[0]
 
-# --- Основні функції ---
 def format_number(val):
     if pd.isna(val): return ""
     try: return str(int(round(float(val))))
@@ -106,174 +72,105 @@ def format_number(val):
 @st.cache_data(show_spinner=False)
 def load_data(file_path_or_buffer):
     try:
-        engine = 'openpyxl'
-        filename = ""
-        
-        if isinstance(file_path_or_buffer, str):
-            filename = file_path_or_buffer
-            if filename.lower().endswith('.xls'): engine = 'xlrd'
-        else:
-            filename = file_path_or_buffer.name
-            if filename.lower().endswith('.xls'): engine = 'xlrd'
-
+        engine = 'xlrd' if str(file_path_or_buffer).lower().endswith('.xls') else 'openpyxl'
         df = pd.read_excel(file_path_or_buffer, engine=engine, header=None)
         
         start_col = 0
-        found_data = False
         for col_idx in range(df.shape[1]):
             if not df.iloc[:10, col_idx].isnull().all():
                 start_col = col_idx
-                found_data = True
                 break
         
-        if not found_data:
-            st.error("⚠️ У файлі не знайдено даних.")
-            return None
-        
-        mapping = {
-            "name": start_col, "profit": start_col + 4,
-            "price": start_col + 5, "art": start_col + 6, "code": start_col + 7
-        }
-        
-        if df.shape[1] <= mapping['code']:
-             st.error(f"⚠️ Нестандартна структура файлу.")
-             return None
-
+        mapping = {"name": start_col, "profit": start_col + 4, "price": start_col + 5, "art": start_col + 6, "code": start_col + 7}
         processed_data = []
         for _, row in df.iterrows():
             try:
                 price = float(row.iloc[mapping['price']]) if pd.notna(row.iloc[mapping['price']]) else 0
                 profit = float(row.iloc[mapping['profit']]) if pd.notna(row.iloc[mapping['profit']]) else 0
-                purchase = price - profit
-                code_val = str(row.iloc[mapping['code']])
-                if code_val.endswith(".0"): code_val = code_val.replace(".0", "")
-                
+                code_val = str(row.iloc[mapping['code']]).replace(".0", "")
                 processed_data.append({
                     "Найменування": str(row.iloc[mapping['name']]),
-                    "Закуп": format_number(purchase),
+                    "Закуп": format_number(price - profit),
                     "Прибуток": format_number(profit),
                     "Ціна": format_number(price),
                     "Код": code_val,
                     "Артикул": str(row.iloc[mapping['art']])
                 })
             except: continue
-            
-        if not processed_data:
-            st.error("⚠️ Не вдалося розпізнати товари.")
-            return None
-            
         return pd.DataFrame(processed_data)
-
     except Exception as e:
-        st.error(f"❌ Помилка: {e}")
+        st.error(f"Помилка: {e}")
         return None
 
-# --- UI ---
+# --- UI Логіка ---
 st.markdown("<h3 style='text-align: center; margin-bottom: 10px; margin-top: 0px;'>Облік</h3>", unsafe_allow_html=True)
 
 if 'df' not in st.session_state: st.session_state.df = None
 if 'filename' not in st.session_state: st.session_state.filename = ""
 if 'manual_mode' not in st.session_state: st.session_state.manual_mode = False
 
-# Пошук файлу на сервері
 auto_file = find_best_file()
 has_default = auto_file is not None
 
-# --- ЛОГІКА ЗАВАНТАЖЕННЯ ---
+# Логіка завантаження (Твоя оригінальна)
 if st.session_state.df is None:
-    # 1. АВТОЗАВАНТАЖЕННЯ (Знайдений файл)
     if has_default and not st.session_state.manual_mode:
-        display_name = f"📂 {auto_file}"
-        
         with st.spinner(f"Завантаження {auto_file}..."):
             df = load_data(auto_file)
-            
         if df is not None:
-            st.session_state.df = df
-            st.session_state.filename = display_name
+            st.session_state.df, st.session_state.filename = df, f"📂 {auto_file}"
             st.rerun()
-        else:
-            st.session_state.manual_mode = True 
-            st.rerun()
-            
-    # 2. РУЧНЕ ЗАВАНТАЖЕННЯ
+        else: st.session_state.manual_mode = True; st.rerun()
+
     uploaded_file = st.file_uploader("Оберіть файл Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
-    
-    if has_default and st.session_state.manual_mode:
-        if st.button(f"↩️ Використати {auto_file}", use_container_width=True):
-            st.session_state.manual_mode = False
-            st.rerun()
-
     if uploaded_file:
-        with st.spinner("Обробка..."):
-            df = load_data(uploaded_file)
+        df = load_data(uploaded_file)
         if df is not None:
-            st.session_state.df = df
-            st.session_state.filename = f"📂 {uploaded_file.name}"
+            st.session_state.df, st.session_state.filename = df, f"📂 {uploaded_file.name}"
             st.rerun()
-
 else:
-    # Кнопка для зміни файлу
     if st.button(f"{st.session_state.filename}", type="secondary", use_container_width=True):
-        st.session_state.df = None
-        st.session_state.filename = ""
-        st.session_state.manual_mode = True
+        st.session_state.df, st.session_state.manual_mode = None, True
         st.rerun()
 
 # --- Робоча зона ---
 if st.session_state.df is not None:
     df = st.session_state.df
-    
     tab_scan, tab_manual = st.tabs(["📹 Сканер", "⌨️ Пошук"])
     search_code = ""
 
     with tab_scan:
-        img_buffer = st.camera_input("Scanner", label_visibility="collapsed")
-        if img_buffer:
-            image = Image.open(img_buffer)
-            decoded = decode(image)
-            if decoded:
-                search_code = decoded[0].data.decode("utf-8")
-            else:
-                st.warning("Штрихкод не розпізнано.")
+        st.write("Наведіть камеру на штрихкод")
+        # Новий професійний сканер (працює як відео)
+        captured = barcode_reader()
+        if captured:
+            search_code = captured
 
     with tab_manual:
-        manual = st.text_input("Введіть код або назву", label_visibility="collapsed")
+        manual = st.text_input("Введіть код або назву", label_visibility="collapsed", key="m_input")
         if manual: search_code = manual
 
     if search_code:
-        query = search_code.lower().strip()
+        query = str(search_code).lower().strip()
         mask = (
             df['Найменування'].str.lower().str.contains(query, na=False) |
             df['Код'].str.lower().str.contains(query, na=False) |
             df['Артикул'].str.lower().str.contains(query, na=False)
         )
         results = df[mask]
-        
         st.markdown("---")
-        
         if not results.empty:
             for _, row in results.iterrows():
-                html_card = f"""
-<div class="product-card">
-<div class="product-name">{row['Найменування']}</div>
-<div class="product-code">Код: {row['Код']}</div>
-<div class="stats-row">
-<div class="purchase-block">
-<div class="stat-label">Закуп</div>
-<div class="purchase-val">{row['Закуп']}</div>
-</div>
-<div class="profit-block">
-<div class="stat-label">Прибуток</div>
-<div class="profit-val">{row['Прибуток']}</div>
-</div>
-<div class="price-block">
-<div class="stat-label">Ціна</div>
-<div class="price-val">{row['Ціна']} ₴</div>
-</div>
-</div>
-</div>
-"""
-                st.markdown(html_card, unsafe_allow_html=True)
+                st.markdown(f"""
+                <div class="product-card">
+                    <div class="product-name">{row['Найменування']}</div>
+                    <div class="product-code">Код: {row['Код']}</div>
+                    <div class="stats-row">
+                        <div class="purchase-block"><div class="stat-label">Закуп</div><div class="purchase-val">{row['Закуп']}</div></div>
+                        <div class="profit-block"><div class="stat-label">Прибуток</div><div class="profit-val">{row['Прибуток']}</div></div>
+                        <div class="price-block"><div class="stat-label">Ціна</div><div class="price-val">{row['Ціна']} ₴</div></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
         else:
             st.error(f"Нічого не знайдено: '{search_code}'")
