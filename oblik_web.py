@@ -1,279 +1,195 @@
 import streamlit as st
 import pandas as pd
-from PIL import Image
+import cv2
+import numpy as np
 from pyzbar.pyzbar import decode
-import os
-import glob
-import re
-from datetime import datetime, timedelta
+from PIL import Image
 
-# --- Налаштування сторінки ---
-st.set_page_config(page_title="Облік", page_icon="📦", layout="centered", initial_sidebar_state="collapsed")
+# --- НАЛАШТУВАННЯ СТОРІНКИ ---
+st.set_page_config(page_title="Web Oblik", page_icon="📦")
 
-# --- CSS Стилі ---
-st.markdown("""
-    <style>
-    .block-container { padding-top: 1rem; padding-bottom: 0rem; }
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    
-    button[data-baseweb="tab"] { flex: 1; width: 100%; justify-content: center; }
-    
-    .product-card {
-        background-color: #ffffff; padding: 15px; border-radius: 12px;
-        margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #eee;
-    }
-    .product-name { font-size: 18px; font-weight: 700; color: #1f1f1f; margin-bottom: 4px; line-height: 1.3; }
-    .product-code { font-size: 13px; color: #888; margin-bottom: 15px; font-family: monospace; }
-    
-    .stats-row { display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid #f0f0f0; padding-top: 10px; }
-    .stat-label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; margin-bottom: 2px;}
-    
-    .purchase-block { text-align: left; width: 30%; }
-    .purchase-val { font-size: 24px; font-weight: 800; color: #d32f2f; }
-    
-    .profit-block { text-align: center; width: 40%; }
-    .profit-val { font-size: 24px; font-weight: 800; color: #444; }
-    
-    .price-block { text-align: right; width: 30%; }
-    .price-val { font-size: 24px; font-weight: 800; color: #2e7d32; }
-    
-    button[kind="secondary"] { height: 2.5rem; margin-top: 0px !important; width: 100%; border: 1px solid #ddd; }
-    div[data-testid="stCameraInput"] button { background-color: #2e7d32; color: white; border: none; }
-    </style>
-""", unsafe_allow_html=True)
+# --- ФУНКЦІЇ ОБРОБКИ ЗОБРАЖЕНЬ ---
 
-# --- Допоміжні функції пошуку файлів ---
-def extract_date_from_filename(filename: str) -> datetime:
-    """Витягує дату з назви файлу (як у вашій ПК програмі)"""
-    match = re.search(r'(\d{1,2})[.,-](\d{1,2})(?:[.,-](\d{2,4})?)', filename)
-    if not match: return datetime.min
-    
-    day, month, year = match.groups()
-    day, month = int(day), int(month)
-    
-    if year:
-        year = int(year)
-        if year < 100: year += 2000
-    else:
-        year = datetime.now().year
-        
+def decode_barcode_with_preprocessing(image_file):
+    """
+    Розпізнає штрихкод, намагаючись покращити зображення, 
+    якщо з першого разу не вдалося (для бюджетних камер).
+    """
     try:
-        return datetime(year=year, month=month, day=day)
-    except ValueError:
-        return datetime.min
-
-def find_best_file():
-    """Шукає файли Облік*.xls/x і повертає найсвіжіший"""
-    # Шаблони пошуку (кирилиця і латиниця, різні регістри)
-    patterns = [
-        "Облік*.xls", "Облік*.xlsx", 
-        "oblik*.xls", "oblik*.xlsx",
-        "Oblik*.xls", "Oblik*.xlsx",
-        "облік*.xls", "облік*.xlsx",
-        "обілк*.xls", "обілк*.xlsx", # Враховуємо вашу помилку в слові :)
-        "data.xlsx", "data.xls"      # Запасний варіант
-    ]
-    
-    found_files = []
-    for p in patterns:
-        found_files.extend(glob.glob(p))
-    
-    # Прибираємо дублікати
-    found_files = list(set(found_files))
-    
-    if not found_files:
-        return None
-        
-    # Якщо знайшли один - повертаємо його
-    if len(found_files) == 1:
-        return found_files[0]
-        
-    # Якщо багато - сортуємо по даті в назві (від нових до старих)
-    try:
-        found_files.sort(key=lambda f: extract_date_from_filename(f), reverse=True)
-        return found_files[0]
-    except:
-        return found_files[0] # Якщо не вийшло, беремо перший
-
-# --- Основні функції ---
-def format_number(val):
-    if pd.isna(val): return ""
-    try: return str(int(round(float(val))))
-    except: return str(val)
-
-@st.cache_data(show_spinner=False)
-def load_data(file_path_or_buffer):
-    try:
-        engine = 'openpyxl'
-        filename = ""
-        
-        if isinstance(file_path_or_buffer, str):
-            filename = file_path_or_buffer
-            if filename.lower().endswith('.xls'): engine = 'xlrd'
+        # Завантаження зображення
+        if isinstance(image_file, Image.Image):
+            pil_image = image_file
         else:
-            filename = file_path_or_buffer.name
-            if filename.lower().endswith('.xls'): engine = 'xlrd'
+            pil_image = Image.open(image_file)
 
-        df = pd.read_excel(file_path_or_buffer, engine=engine, header=None)
-        
-        start_col = 0
-        found_data = False
-        for col_idx in range(df.shape[1]):
-            if not df.iloc[:10, col_idx].isnull().all():
-                start_col = col_idx
-                found_data = True
-                break
-        
-        if not found_data:
-            st.error("⚠️ У файлі не знайдено даних.")
-            return None
-        
-        mapping = {
-            "name": start_col, "profit": start_col + 4,
-            "price": start_col + 5, "art": start_col + 6, "code": start_col + 7
-        }
-        
-        if df.shape[1] <= mapping['code']:
-             st.error(f"⚠️ Нестандартна структура файлу.")
-             return None
+        # Конвертація в формат для OpenCV
+        opencv_image = np.array(pil_image.convert('RGB'))
+        # RGB -> BGR
+        opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_RGB2BGR)
 
-        processed_data = []
-        for _, row in df.iterrows():
-            try:
-                price = float(row.iloc[mapping['price']]) if pd.notna(row.iloc[mapping['price']]) else 0
-                profit = float(row.iloc[mapping['profit']]) if pd.notna(row.iloc[mapping['profit']]) else 0
-                purchase = price - profit
-                code_val = str(row.iloc[mapping['code']])
-                if code_val.endswith(".0"): code_val = code_val.replace(".0", "")
-                
-                processed_data.append({
-                    "Найменування": str(row.iloc[mapping['name']]),
-                    "Закуп": format_number(purchase),
-                    "Прибуток": format_number(profit),
-                    "Ціна": format_number(price),
-                    "Код": code_val,
-                    "Артикул": str(row.iloc[mapping['art']])
-                })
-            except: continue
-            
-        if not processed_data:
-            st.error("⚠️ Не вдалося розпізнати товари.")
-            return None
-            
-        return pd.DataFrame(processed_data)
+        # СПРОБА 1: Оригінал
+        decoded = decode(opencv_image)
+        if decoded: return decoded[0].data.decode('utf-8')
+
+        # СПРОБА 2: Відтінки сірого
+        gray = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2GRAY)
+        decoded = decode(gray)
+        if decoded: return decoded[0].data.decode('utf-8')
+
+        # СПРОБА 3: Підвищення контрасту (CLAHE)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        contrast = clahe.apply(gray)
+        decoded = decode(contrast)
+        if decoded: return decoded[0].data.decode('utf-8')
+
+        # СПРОБА 4: Адаптивна бінаризація (Чорно-біле)
+        thresh = cv2.adaptiveThreshold(
+            contrast, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+            cv2.THRESH_BINARY, 11, 2
+        )
+        decoded = decode(thresh)
+        if decoded: return decoded[0].data.decode('utf-8')
 
     except Exception as e:
-        st.error(f"❌ Помилка: {e}")
+        st.error(f"Помилка обробки фото: {e}")
+        
+    return None
+
+# --- ЗАВАНТАЖЕННЯ ДАНИХ ---
+
+@st.cache_data
+def load_data(file):
+    try:
+        if file.name.endswith('.xls'):
+            df = pd.read_excel(file, engine='xlrd')
+        else:
+            df = pd.read_excel(file, engine='openpyxl')
+        
+        # Приведення колонок до стрічкового типу для пошуку
+        # ПРИМІТКА: Перевір, щоб назви колонок тут збігалися з твоїм Excel!
+        # Я використовую стандартні назви, зміни їх якщо треба.
+        # Наприклад, якщо у тебе "Код товару", зміни 'Код' на 'Код товару'
+        
+        # Конвертуємо всі коди в стрічку, прибираючи .0 якщо є
+        if 'Код' in df.columns:
+            df['Код'] = df['Код'].astype(str).str.replace(r'\.0$', '', regex=True)
+            
+        return df
+    except Exception as e:
+        st.error(f"Не вдалося відкрити файл: {e}")
         return None
 
-# --- UI ---
-st.markdown("<h3 style='text-align: center; margin-bottom: 10px; margin-top: 0px;'>Облік</h3>", unsafe_allow_html=True)
+# --- UI ВІДОБРАЖЕННЯ ТОВАРУ ---
 
-if 'df' not in st.session_state: st.session_state.df = None
-if 'filename' not in st.session_state: st.session_state.filename = ""
-if 'manual_mode' not in st.session_state: st.session_state.manual_mode = False
-
-# Пошук файлу на сервері
-auto_file = find_best_file()
-has_default = auto_file is not None
-
-# --- ЛОГІКА ЗАВАНТАЖЕННЯ ---
-if st.session_state.df is None:
-    # 1. АВТОЗАВАНТАЖЕННЯ (Знайдений файл)
-    if has_default and not st.session_state.manual_mode:
-        display_name = f"📂 {auto_file}"
-        
-        with st.spinner(f"Завантаження {auto_file}..."):
-            df = load_data(auto_file)
-            
-        if df is not None:
-            st.session_state.df = df
-            st.session_state.filename = display_name
-            st.rerun()
-        else:
-            st.session_state.manual_mode = True 
-            st.rerun()
-            
-    # 2. РУЧНЕ ЗАВАНТАЖЕННЯ
-    uploaded_file = st.file_uploader("Оберіть файл Excel", type=['xls', 'xlsx'], label_visibility="collapsed")
+def show_product_card(product_row):
+    """Гарне відображення інформації про товар"""
+    st.markdown("---")
     
-    if has_default and st.session_state.manual_mode:
-        if st.button(f"↩️ Використати {auto_file}", use_container_width=True):
-            st.session_state.manual_mode = False
-            st.rerun()
+    # Отримуємо дані з рядка (використовуємо .get для безпеки)
+    # Зміни ключі ['...'], якщо твої колонки називаються інакше
+    name = product_row.get('Найменування', 'Назва не вказана')
+    code = product_row.get('Код', '---')
+    price_sell = product_row.get('Ціна', 0)
+    price_buy = product_row.get('Закуп', 0) # Або 'Собівартість'
+    
+    # Обчислюємо прибуток, якщо його немає в таблиці
+    if 'Прибуток' in product_row:
+        profit = product_row['Прибуток']
+    else:
+        try:
+            profit = float(price_sell) - float(price_buy)
+        except:
+            profit = 0
 
-    if uploaded_file:
-        with st.spinner("Обробка..."):
-            df = load_data(uploaded_file)
-        if df is not None:
-            st.session_state.df = df
-            st.session_state.filename = f"📂 {uploaded_file.name}"
-            st.rerun()
+    st.subheader(name)
+    st.caption(f"Код: {code}")
+
+    # Використовуємо колонки для красивого відображення цифр
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(label="ЗАКУП", value=f"{price_buy}")
+    
+    with col2:
+        st.metric(label="ПРИБУТОК", value=f"{profit}")
+    
+    with col3:
+        st.metric(label="ЦІНА", value=f"{price_sell} ₴")
+        
+    st.success("Товар знайдено!")
+
+# --- ГОЛОВНА ЛОГІКА ПРОГРАМИ ---
+
+st.title("Облік")
+
+# 1. Завантаження бази даних
+db_file = st.file_uploader("📂 Завантаж файл бази (Excel)", type=['xls', 'xlsx'])
+
+if db_file:
+    df = load_data(db_file)
+    
+    if df is not None:
+        st.info(f"База завантажена: {len(df)} товарів")
+        
+        # Вкладки
+        tab1, tab2 = st.tabs(["📹 Сканер", "⌨️ Пошук"])
+
+        # --- ВКЛАДКА 1: СКАНЕР ---
+        with tab1:
+            st.write("Зроби фото штрихкоду або завантаж зображення")
+            
+            # Вибір джерела: Камера або Файл
+            input_method = st.radio("Джерело:", ["Камера", "Завантажити фото"], horizontal=True, label_visibility="collapsed")
+            
+            img_input = None
+            
+            if input_method == "Камера":
+                img_input = st.camera_input("Камера")
+            else:
+                img_input = st.file_uploader("Вибери фото", type=['jpg', 'png', 'jpeg'])
+
+            if img_input:
+                with st.spinner('Обробка зображення...'):
+                    # Викликаємо нашу покращену функцію
+                    barcode = decode_barcode_with_preprocessing(img_input)
+                
+                if barcode:
+                    st.success(f"Зчитано код: {barcode}")
+                    
+                    # Пошук в базі
+                    # Шукаємо точний збіг
+                    result = df[df['Код'] == barcode]
+                    
+                    if not result.empty:
+                        # Беремо перший знайдений рядок (як словник)
+                        show_product_card(result.iloc[0])
+                    else:
+                        st.warning(f"Товар з кодом {barcode} не знайдено в базі.")
+                else:
+                    st.error("Штрихкод не розпізнано. Спробуй наблизити камеру або покращити світло.")
+
+        # --- ВКЛАДКА 2: ПОШУК ---
+        with tab2:
+            search_query = st.text_input("Введи назву або код товару")
+            
+            if search_query:
+                # Пошук по Коду АБО по Назві (без врахування регістру)
+                # Конвертуємо все в стрічки для пошуку
+                mask_code = df['Код'].astype(str).str.contains(search_query, na=False)
+                mask_name = df['Найменування'].astype(str).str.contains(search_query, case=False, na=False)
+                
+                search_results = df[mask_code | mask_name]
+                
+                if not search_results.empty:
+                    st.write(f"Знайдено: {len(search_results)}")
+                    # Якщо один результат - показуємо картку
+                    if len(search_results) == 1:
+                        show_product_card(search_results.iloc[0])
+                    else:
+                        # Якщо багато - показуємо таблицю
+                        st.dataframe(search_results[['Код', 'Найменування', 'Ціна']])
+                else:
+                    st.warning("Нічого не знайдено.")
 
 else:
-    # Кнопка для зміни файлу
-    if st.button(f"{st.session_state.filename}", type="secondary", use_container_width=True):
-        st.session_state.df = None
-        st.session_state.filename = ""
-        st.session_state.manual_mode = True
-        st.rerun()
-
-# --- Робоча зона ---
-if st.session_state.df is not None:
-    df = st.session_state.df
-    
-    tab_scan, tab_manual = st.tabs(["📹 Сканер", "⌨️ Пошук"])
-    search_code = ""
-
-    with tab_scan:
-        img_buffer = st.camera_input("Scanner", label_visibility="collapsed")
-        if img_buffer:
-            image = Image.open(img_buffer)
-            decoded = decode(image)
-            if decoded:
-                search_code = decoded[0].data.decode("utf-8")
-            else:
-                st.warning("Штрихкод не розпізнано.")
-
-    with tab_manual:
-        manual = st.text_input("Введіть код або назву", label_visibility="collapsed")
-        if manual: search_code = manual
-
-    if search_code:
-        query = search_code.lower().strip()
-        mask = (
-            df['Найменування'].str.lower().str.contains(query, na=False) |
-            df['Код'].str.lower().str.contains(query, na=False) |
-            df['Артикул'].str.lower().str.contains(query, na=False)
-        )
-        results = df[mask]
-        
-        st.markdown("---")
-        
-        if not results.empty:
-            for _, row in results.iterrows():
-                html_card = f"""
-<div class="product-card">
-<div class="product-name">{row['Найменування']}</div>
-<div class="product-code">Код: {row['Код']}</div>
-<div class="stats-row">
-<div class="purchase-block">
-<div class="stat-label">Закуп</div>
-<div class="purchase-val">{row['Закуп']}</div>
-</div>
-<div class="profit-block">
-<div class="stat-label">Прибуток</div>
-<div class="profit-val">{row['Прибуток']}</div>
-</div>
-<div class="price-block">
-<div class="stat-label">Ціна</div>
-<div class="price-val">{row['Ціна']} ₴</div>
-</div>
-</div>
-</div>
-"""
-                st.markdown(html_card, unsafe_allow_html=True)
-        else:
-            st.error(f"Нічого не знайдено: '{search_code}'")
+    st.warning("Будь ласка, завантаж файл Excel для початку роботи.")
